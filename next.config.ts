@@ -1,7 +1,9 @@
-import type { NextConfig } from "next";
+// next.config.ts
 
-const nextConfig: NextConfig = {
-  /* config options here */
-};
+const nextConfig = {
+  experimental: {
+    turbo: false, // ✅ Nonaktifkan Turbopack, pakai Webpack
+  },
+}
 
-export default nextConfig;
+export default nextConfig
