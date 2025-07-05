@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { WhatsAppService } from "../../../../lib/whatsapp-service"
+import { WhatsAppService } from "@/lib/whatsapp-service"
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,9 +12,19 @@ export async function POST(request: NextRequest) {
 
     const text = await file.text()
     const service = WhatsAppService.getInstance()
+
+    // Load contacts for messaging
     const contactsCount = await service.loadContacts(text)
 
-    return NextResponse.json({ success: true, contactsCount })
+    // Also load users for user management
+    const usersCount = await service.loadUsersFromCSV(text)
+
+    return NextResponse.json({
+      success: true,
+      contactsCount,
+      usersCount,
+      message: `Loaded ${contactsCount} contacts and ${usersCount} users`,
+    })
   } catch (error) {
     console.error("Failed to upload CSV:", error)
     return NextResponse.json({

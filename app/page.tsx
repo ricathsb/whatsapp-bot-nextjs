@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { MessageCircle, Users, Send, Upload } from "@/components/icons"
+import { UserManagement } from "@/components/user-management"
 
 interface BotStatus {
   isRunning: boolean
@@ -66,7 +67,9 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
       })
       const data = await response.json()
       if (data.success) {
-        setLogs((prev) => [...prev, "Bot started successfully"])
+        setLogs((prev) => [...prev, "Bot started successfully", "🟢 All users have been automatically activated"])
+        // Trigger user table refresh
+        window.dispatchEvent(new CustomEvent("bulkUserUpdate"))
       } else {
         setLogs((prev) => [...prev, `Error: ${data.error}`])
       }
@@ -82,7 +85,9 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
       })
       const data = await response.json()
       if (data.success) {
-        setLogs((prev) => [...prev, "Bot stopped successfully"])
+        setLogs((prev) => [...prev, "Bot stopped successfully", "🔴 All users have been automatically deactivated"])
+        // Trigger user table refresh
+        window.dispatchEvent(new CustomEvent("bulkUserUpdate"))
       }
     } catch (error) {
       setLogs((prev) => [...prev, `Failed to stop bot: ${error}`])
@@ -102,7 +107,19 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
       })
       const data = await response.json()
       if (data.success) {
-        setLogs((prev) => [...prev, `CSV uploaded: ${data.contactsCount} contacts loaded`])
+        setLogs((prev) => [
+          ...prev,
+          `CSV uploaded successfully:`,
+          `- ${data.contactsCount} contacts loaded for messaging`,
+          `- ${data.usersCount} users added to management table`,
+        ])
+        // Reset file input
+        setCsvFile(null)
+        const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+        if (fileInput) fileInput.value = ""
+
+        // Trigger refresh of user management table
+        window.dispatchEvent(new CustomEvent("refreshUsers"))
       } else {
         setLogs((prev) => [...prev, `Upload failed: ${data.error}`])
       }
@@ -135,7 +152,7 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
     <div className="container mx-auto p-6 space-y-6">
       <div className="text-center">
         <h1 className="text-3xl font-bold mb-2">WhatsApp Bot Dashboard</h1>
-        <p className="text-gray-600">Manage your WhatsApp bulk messaging bot</p>
+        <p className="text-gray-600">Manage your WhatsApp bulk messaging bot with automatic user management</p>
       </div>
 
       {/* Status Cards */}
@@ -176,16 +193,16 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Actions</CardTitle>
+            <CardTitle className="text-sm font-medium">Bot Control</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {!status.isRunning ? (
               <Button onClick={startBot} className="w-full">
-                Start Bot
+                🚀 Start Bot + Activate All Users
               </Button>
             ) : (
               <Button onClick={stopBot} variant="destructive" className="w-full">
-                Stop Bot
+                🛑 Stop Bot + Deactivate All Users
               </Button>
             )}
           </CardContent>
@@ -201,12 +218,11 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
           </CardHeader>
           <CardContent>
             <div className="flex justify-center">
-                          <img
-                src={status.qrCode}
+              <img
+                src={status.qrCode || "/placeholder.svg"}
                 alt="WhatsApp QR Code"
                 className="mx-auto rounded border p-2 bg-white shadow"
               />
-
             </div>
           </CardContent>
         </Card>
@@ -215,17 +231,21 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
       {/* CSV Upload */}
       <Card>
         <CardHeader>
-          <CardTitle>Upload Contacts</CardTitle>
-          <CardDescription>Upload a CSV file with name and phone columns</CardDescription>
+          <CardTitle>Upload Contacts & Users</CardTitle>
+          <CardDescription>
+            Upload a CSV file with name and phone columns. This will load contacts for messaging AND add users to the
+            management table.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center space-x-2">
             <Input type="file" accept=".csv" onChange={(e) => setCsvFile(e.target.files?.[0] || null)} />
             <Button onClick={uploadCSV} disabled={!csvFile}>
               <Upload className="h-4 w-4 mr-2" />
-              Upload
+              Upload CSV
             </Button>
           </div>
+
         </CardContent>
       </Card>
 
@@ -274,6 +294,9 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
           </div>
         </CardContent>
       </Card>
+
+      {/* User Management */}
+      <UserManagement />
     </div>
   )
 }
