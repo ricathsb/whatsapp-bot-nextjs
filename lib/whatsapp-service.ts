@@ -121,7 +121,17 @@ export class WhatsAppService extends EventEmitter {
 
   // User management methods
   addUser(name: string, phone: string): User {
-    const normalizedPhone = phone.replace(/\D/g, "")
+    // Normalize phone: remove all non-digits, then remove leading zeros
+    let normalizedPhone = phone.replace(/\D/g, "")
+
+    // Remove leading zeros but keep country code format
+    if (normalizedPhone.startsWith("0")) {
+      normalizedPhone = "62" + normalizedPhone.substring(1)
+    } else if (!normalizedPhone.startsWith("62")) {
+      normalizedPhone = "62" + normalizedPhone
+    }
+
+    console.log(`[WA] Phone normalization: "${phone}" → "${normalizedPhone}"`)
 
     // Check if user already exists by phone
     const existingUserByPhone = this.users.find((u) => u.phone === normalizedPhone)
@@ -154,10 +164,10 @@ export class WhatsAppService extends EventEmitter {
     return user
   }
 
-  // Parse CSV with better error handling and logging
+  // Enhanced CSV parsing with flexible column detection
   private parseCSV(csvContent: string): { headers: string[]; rows: string[][] } {
     console.log("[WA] Starting CSV parsing...")
-    console.log("[WA] CSV Content preview:", csvContent.substring(0, 200) + "...")
+    console.log("[WA] CSV Content preview:", csvContent.substring(0, 300) + "...")
 
     const lines = csvContent.split("\n").filter((line) => line.trim()) // Remove empty lines
     console.log(`[WA] Found ${lines.length} non-empty lines in CSV`)
@@ -166,57 +176,189 @@ export class WhatsAppService extends EventEmitter {
       throw new Error("CSV file is empty")
     }
 
-    // Parse headers
-    const headers = lines[0]
-      .toLowerCase()
-      .split(",")
-      .map((h) => h.trim().replace(/['"]/g, "")) // Remove quotes
+    // Parse headers with better handling
+    const headerLine = lines[0]
+    let headers: string[]
 
-    console.log("[WA] CSV Headers:", headers)
+    // Handle different CSV formats (comma, semicolon, tab)
+    if (headerLine.includes(";")) {
+      headers = headerLine.split(";").map((h) => h.trim().replace(/['"]/g, "").toLowerCase())
+      console.log("[WA] Detected semicolon-separated CSV")
+    } else if (headerLine.includes("\t")) {
+      headers = headerLine.split("\t").map((h) => h.trim().replace(/['"]/g, "").toLowerCase())
+      console.log("[WA] Detected tab-separated CSV")
+    } else {
+      headers = headerLine.split(",").map((h) => h.trim().replace(/['"]/g, "").toLowerCase())
+      console.log("[WA] Detected comma-separated CSV")
+    }
 
-    // Parse rows
+    console.log("[WA] CSV Headers found:", headers)
+    console.log(`[WA] Total columns: ${headers.length}`)
+
+    // Parse rows with same separator
+    const separator = headerLine.includes(";") ? ";" : headerLine.includes("\t") ? "\t" : ","
     const rows: string[][] = []
+
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim()
       if (!line) continue
 
-      // Handle CSV with quotes and commas
-      const row = line.split(",").map((cell) => cell.trim().replace(/['"]/g, ""))
+      // Handle CSV with quotes and different separators
+      const row = line.split(separator).map((cell) => cell.trim().replace(/['"]/g, ""))
       rows.push(row)
-      console.log(`[WA] Row ${i}: [${row.join(", ")}]`)
+
+      // Only log first few rows to avoid spam
+      if (i <= 3) {
+        console.log(`[WA] Row ${i}: [${row.join(" | ")}]`)
+      }
     }
 
     console.log(`[WA] Parsed ${rows.length} data rows`)
     return { headers, rows }
   }
 
-  // Load users from CSV with detailed logging
+  // Smart column detection for name and phone
+  private findColumnIndices(headers: string[]): { nameIndex: number; phoneIndex: number; suggestions: string } {
+    console.log("[WA] ===== SMART COLUMN DETECTION =====")
+
+    // Possible variations for name column
+    const nameVariations = [
+      "name",
+      "nama",
+      "full_name",
+      "fullname",
+      "customer_name",
+      "client_name",
+      "first_name",
+      "last_name",
+      "person_name",
+      "contact_name",
+      "user_name",
+      "nama_lengkap",
+      "nama_customer",
+      "nama_klien",
+      "nama_peserta",
+    ]
+
+    // Possible variations for phone column
+    const phoneVariations = [
+      "phone",
+      "telephone",
+      "mobile",
+      "cell",
+      "whatsapp",
+      "wa",
+      "hp",
+      "telepon",
+      "phone_number",
+      "mobile_number",
+      "cell_number",
+      "contact_number",
+      "nomor_hp",
+      "nomor_telepon",
+      "nomor_wa",
+      "nomor_whatsapp",
+      "no_hp",
+      "no_wa",
+    ]
+
+    let nameIndex = -1
+    let phoneIndex = -1
+    const nameMatches: string[] = []
+    const phoneMatches: string[] = []
+
+    // Find name column
+    for (let i = 0; i < headers.length; i++) {
+      const header = headers[i].toLowerCase()
+      for (const variation of nameVariations) {
+        if (header.includes(variation)) {
+          nameIndex = i
+          nameMatches.push(`"${headers[i]}" (column ${i + 1})`)
+          console.log(`[WA] ✅ Name column found: "${headers[i]}" at index ${i}`)
+          break
+        }
+      }
+      if (nameIndex !== -1) break
+    }
+
+    // Find phone column
+    for (let i = 0; i < headers.length; i++) {
+      const header = headers[i].toLowerCase()
+      for (const variation of phoneVariations) {
+        if (header.includes(variation)) {
+          phoneIndex = i
+          phoneMatches.push(`"${headers[i]}" (column ${i + 1})`)
+          console.log(`[WA] ✅ Phone column found: "${headers[i]}" at index ${i}`)
+          break
+        }
+      }
+      if (phoneIndex !== -1) break
+    }
+
+    // Generate suggestions if columns not found
+    let suggestions = ""
+    if (nameIndex === -1 || phoneIndex === -1) {
+      suggestions += "\n🔍 COLUMN DETECTION RESULTS:\n"
+      suggestions += `Available columns: ${headers.map((h, i) => `"${h}" (${i + 1})`).join(", ")}\n\n`
+
+      if (nameIndex === -1) {
+        suggestions += "❌ Name column not found automatically.\n"
+        suggestions += `Expected variations: ${nameVariations.slice(0, 8).join(", ")}\n`
+      } else {
+        suggestions += `✅ Name column: ${nameMatches[0]}\n`
+      }
+
+      if (phoneIndex === -1) {
+        suggestions += "❌ Phone column not found automatically.\n"
+        suggestions += `Expected variations: ${phoneVariations.slice(0, 8).join(", ")}\n`
+      } else {
+        suggestions += `✅ Phone column: ${phoneMatches[0]}\n`
+      }
+
+      suggestions += "\n💡 SOLUTIONS:\n"
+      suggestions += "1. Rename your CSV headers to include 'name' and 'phone'\n"
+      suggestions += "2. Use headers like: 'nama', 'telepon', 'hp', 'wa'\n"
+      suggestions += "3. Example: 'customer_name', 'phone_number'\n"
+    }
+
+    console.log("[WA] Column detection results:")
+    console.log(`[WA] Name index: ${nameIndex} (${nameIndex >= 0 ? headers[nameIndex] : "NOT FOUND"})`)
+    console.log(`[WA] Phone index: ${phoneIndex} (${phoneIndex >= 0 ? headers[phoneIndex] : "NOT FOUND"})`)
+    console.log("[WA] =====================================")
+
+    return { nameIndex, phoneIndex, suggestions }
+  }
+
+  // Load users from CSV with smart column detection
   async loadUsersFromCSV(csvContent: string): Promise<number> {
     console.log("[WA] ===== LOADING USERS FROM CSV =====")
 
     try {
       const { headers, rows } = this.parseCSV(csvContent)
-
-      // Find column indices
-      const nameIndex = headers.findIndex((h) => h.includes("name") || h.includes("nama"))
-      const phoneIndex = headers.findIndex(
-        (h) => h.includes("phone") || h.includes("telepon") || h.includes("hp") || h.includes("wa"),
-      )
-
-      console.log(`[WA] Name column index: ${nameIndex} (${headers[nameIndex] || "NOT FOUND"})`)
-      console.log(`[WA] Phone column index: ${phoneIndex} (${headers[phoneIndex] || "NOT FOUND"})`)
+      const { nameIndex, phoneIndex, suggestions } = this.findColumnIndices(headers)
 
       if (nameIndex === -1 || phoneIndex === -1) {
-        throw new Error(`CSV must contain name and phone columns. Found headers: ${headers.join(", ")}`)
+        const errorMessage = `Cannot find required columns in CSV.${suggestions}`
+        console.error("[WA]", errorMessage)
+        throw new Error(errorMessage)
       }
 
       let addedCount = 0
       let skippedCount = 0
       let errorCount = 0
 
+      console.log(`[WA] Processing ${rows.length} rows...`)
+      console.log(
+        `[WA] Using columns: Name="${headers[nameIndex]}" (${nameIndex + 1}), Phone="${headers[phoneIndex]}" (${phoneIndex + 1})`,
+      )
+
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
-        console.log(`[WA] Processing row ${i + 1}:`, row)
+
+        // Only log first few rows for debugging
+        if (i < 3) {
+          console.log(`[WA] Processing row ${i + 1}:`, row)
+        }
 
         if (row.length <= Math.max(nameIndex, phoneIndex)) {
           console.log(`[WA] Row ${i + 1} has insufficient columns (${row.length}), skipping`)
@@ -228,16 +370,33 @@ export class WhatsAppService extends EventEmitter {
         const phoneRaw = row[phoneIndex]?.trim()
 
         if (!name || !phoneRaw) {
-          console.log(`[WA] Row ${i + 1} missing name or phone: name='${name}', phone='${phoneRaw}', skipping`)
+          if (i < 5) {
+            // Only log first few errors
+            console.log(`[WA] Row ${i + 1} missing data: name='${name}', phone='${phoneRaw}', skipping`)
+          }
           errorCount++
           continue
         }
 
-        const phone = phoneRaw.replace(/\D/g, "")
-        console.log(`[WA] Row ${i + 1} - Name: '${name}', Phone raw: '${phoneRaw}', Phone normalized: '${phone}'`)
+        // Use consistent phone normalization
+        let phone = phoneRaw.replace(/\D/g, "")
 
-        if (phone.length < 10) {
-          console.log(`[WA] Row ${i + 1} - Phone too short (${phone.length} digits): '${phone}', skipping`)
+        // Remove leading zeros but keep country code format
+        if (phone.startsWith("0")) {
+          phone = "62" + phone.substring(1)
+        } else if (!phone.startsWith("62")) {
+          phone = "62" + phone
+        }
+
+        if (i < 3) {
+          console.log(`[WA] Row ${i + 1} - Name: '${name}', Phone raw: '${phoneRaw}', Phone normalized: '${phone}'`)
+        }
+
+        if (phone.length < 12) {
+          // Minimum 62 + 10 digits
+          if (i < 5) {
+            console.log(`[WA] Row ${i + 1} - Phone too short (${phone.length} digits): '${phone}', skipping`)
+          }
           errorCount++
           continue
         }
@@ -245,9 +404,11 @@ export class WhatsAppService extends EventEmitter {
         // Check if user already exists
         const existingUser = this.users.find((u) => u.phone === phone)
         if (existingUser) {
-          console.log(
-            `[WA] Row ${i + 1} - User with phone ${phone} already exists (${existingUser.name}), skipping ${name}`,
-          )
+          if (i < 5) {
+            console.log(
+              `[WA] Row ${i + 1} - User with phone ${phone} already exists (${existingUser.name}), skipping ${name}`,
+            )
+          }
           skippedCount++
           continue
         }
@@ -256,19 +417,23 @@ export class WhatsAppService extends EventEmitter {
         const user = this.addUser(name, phone)
         if (user) {
           addedCount++
-          console.log(`[WA] Row ${i + 1} - Successfully added: ${name} (${phone})`)
+          if (i < 3) {
+            console.log(`[WA] Row ${i + 1} - Successfully added: ${name} (${phone})`)
+          }
         }
       }
 
       console.log("[WA] ===== CSV LOADING SUMMARY =====")
+      console.log(`[WA] CSV Format: ${headers.length} columns detected`)
+      console.log(`[WA] Used columns: "${headers[nameIndex]}" and "${headers[phoneIndex]}"`)
       console.log(`[WA] Total rows processed: ${rows.length}`)
       console.log(`[WA] Successfully added: ${addedCount}`)
       console.log(`[WA] Skipped (duplicates): ${skippedCount}`)
-      console.log(`[WA] Errors: ${errorCount}`)
+      console.log(`[WA] Errors (invalid data): ${errorCount}`)
       console.log(`[WA] Total users in system: ${this.users.length}`)
       console.log(
-        "[WA] Current users:",
-        this.users.map((u) => `${u.name} (${u.phone})`),
+        "[WA] Sample users:",
+        this.users.slice(0, 3).map((u) => `${u.name} (${u.phone})`),
       )
       console.log("[WA] ===================================")
 
@@ -316,10 +481,31 @@ export class WhatsAppService extends EventEmitter {
 
   // Check if user is active by phone number
   isUserActive(phone: string): boolean {
-    const normalizedPhone = phone.replace(/\D/g, "")
+    // Normalize phone the same way as addUser
+    let normalizedPhone = phone.replace(/\D/g, "")
+
+    // Remove leading zeros but keep country code format
+    if (normalizedPhone.startsWith("0")) {
+      normalizedPhone = "62" + normalizedPhone.substring(1)
+    } else if (!normalizedPhone.startsWith("62")) {
+      normalizedPhone = "62" + normalizedPhone
+    }
+
+    console.log(`[WA] Checking user activity: "${phone}" → normalized: "${normalizedPhone}"`)
+
     const user = this.users.find((u) => u.phone === normalizedPhone)
     const isActive = user ? user.isActive : false
-    console.log(`[WA] Checking user ${normalizedPhone}: ${isActive ? "ACTIVE" : "INACTIVE/NOT_FOUND"}`)
+
+    if (user) {
+      console.log(`[WA] User found: ${user.name} (${user.phone}) - Status: ${isActive ? "ACTIVE" : "INACTIVE"}`)
+    } else {
+      console.log(`[WA] User NOT FOUND for phone: ${normalizedPhone}`)
+      console.log(
+        `[WA] Available users:`,
+        this.users.map((u) => `${u.name} (${u.phone})`),
+      )
+    }
+
     return isActive
   }
 
@@ -579,14 +765,10 @@ export class WhatsAppService extends EventEmitter {
 
     try {
       const { headers, rows } = this.parseCSV(csvContent)
-
-      const nameIndex = headers.findIndex((h) => h.includes("name") || h.includes("nama"))
-      const phoneIndex = headers.findIndex(
-        (h) => h.includes("phone") || h.includes("telepon") || h.includes("hp") || h.includes("wa"),
-      )
+      const { nameIndex, phoneIndex } = this.findColumnIndices(headers)
 
       if (nameIndex === -1 || phoneIndex === -1) {
-        throw new Error(`CSV must contain name and phone columns. Found headers: ${headers.join(", ")}`)
+        throw new Error("Cannot find required name and phone columns in CSV")
       }
 
       for (let i = 0; i < rows.length; i++) {
