@@ -234,6 +234,15 @@ export class WhatsAppClient extends EventEmitter {
             this.messageHandler.addMessage(phone, message)
             console.log(`[WhatsAppClient] 💬 Message from ${contact.name} (${phone}): ${msg.body}`)
 
+            // ✅ SOLUSI: Emit event ke browser untuk update real-time
+            if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                    new CustomEvent("newMessage", {
+                        detail: { contact, message, phone },
+                    }),
+                )
+            }
+
             if (!this.userManager.isUserActive(phone)) {
                 console.log(`[WhatsAppClient] 🚫 User ${contact.name} is INACTIVE - not responding`)
                 this.emit("message", { contact, message, responded: false, reason: "User inactive" })
@@ -293,6 +302,15 @@ export class WhatsAppClient extends EventEmitter {
                 this.status.messagesSent++
                 console.log(`[WhatsAppClient] ✅ Sent to ${contact.name} (${contact.phone})`)
 
+                // ✅ SOLUSI: Emit event untuk message sent
+                if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                        new CustomEvent("messageSent", {
+                            detail: { contact, message },
+                        }),
+                    )
+                }
+
                 await this.delay(3000 + Math.random() * 3000)
             } catch (error) {
                 console.error(`[WhatsAppClient] ❌ Failed to send to ${contact.name}:`, error)
@@ -327,6 +345,16 @@ export class WhatsAppClient extends EventEmitter {
 
             console.log(`[WhatsAppClient] 📤 Reply sent to ${phone}`)
             this.emit("reply_sent", { to, message })
+
+            // ✅ SOLUSI: Emit event untuk reply sent
+            if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                    new CustomEvent("messageSent", {
+                        detail: { phone, message },
+                    }),
+                )
+            }
+
             return true
         } catch (error) {
             console.error(`[WhatsAppClient] Failed to send reply to ${to}:`, error)
