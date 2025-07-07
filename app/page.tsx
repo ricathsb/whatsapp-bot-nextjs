@@ -2,6 +2,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -21,34 +22,37 @@ interface BotStatus {
 }
 
 export default function WhatsAppBot() {
+  const router = useRouter()
   const [status, setStatus] = useState<BotStatus>({
     isRunning: false,
     isReady: false,
     contactsCount: 0,
     messagesSent: 0,
   })
-  const [message, setMessage] =
-    useState(`Halo {name}, kami perhatikan status kepesertaan BPJS Ketenagakerjaan Anda sedang tidak aktif.
-
-Jangan lewatkan perlindungan dan manfaat penting untuk Anda dan keluarga!
-
-Dengan mengaktifkan kembali kepesertaan Anda, Anda akan mendapatkan:
-- Perlindungan dari risiko kecelakaan saat bekerja (JKK).
-- Manfaat uang tunai saat memasuki usia 56 tahun atau berhenti kerja (JHT).
-- Santunan untuk ahli waris jika meninggal dunia (JKM).
-- Beasiswa pendidikan untuk 2 orang anak (dengan syarat berlaku).
-
-Yuk, segera aktifkan kembali kepesertaan Anda agar merasa lebih aman dan tenang saat bekerja.
-
-Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`)
+  const [message, setMessage] = useState("Halo {name}, kami perhatikan status kepesertaan BPJS Ketenagakerjaan Anda sedang tidak aktif...")
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [logs, setLogs] = useState<string[]>([])
 
   useEffect(() => {
-    // Poll status every 2 seconds
+    checkStatus()
     const interval = setInterval(checkStatus, 2000)
     return () => clearInterval(interval)
   }, [])
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const res = await fetch("/api/auth/me")
+        if (!res.ok) {
+          router.push("/login")
+        }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      } catch (err) {
+        router.push("/login")
+      }
+    }
+    checkAuth()
+  }, [router])
 
   const checkStatus = async () => {
     try {
@@ -68,7 +72,6 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
       const data = await response.json()
       if (data.success) {
         setLogs((prev) => [...prev, "Bot started successfully", "🟢 All users have been automatically activated"])
-        // Trigger user table refresh
         window.dispatchEvent(new CustomEvent("bulkUserUpdate"))
       } else {
         setLogs((prev) => [...prev, `Error: ${data.error}`])
@@ -86,7 +89,6 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
       const data = await response.json()
       if (data.success) {
         setLogs((prev) => [...prev, "Bot stopped successfully", "🔴 All users have been automatically deactivated"])
-        // Trigger user table refresh
         window.dispatchEvent(new CustomEvent("bulkUserUpdate"))
       }
     } catch (error) {
@@ -96,7 +98,6 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
 
   const uploadCSV = async () => {
     if (!csvFile) return
-
     const formData = new FormData()
     formData.append("csv", csvFile)
 
@@ -113,12 +114,9 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
           `- ${data.contactsCount} contacts loaded for messaging`,
           `- ${data.usersCount} users added to management table`,
         ])
-        // Reset file input
         setCsvFile(null)
         const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
         if (fileInput) fileInput.value = ""
-
-        // Trigger refresh of user management table
         window.dispatchEvent(new CustomEvent("refreshUsers"))
       } else {
         setLogs((prev) => [...prev, `Upload failed: ${data.error}`])
@@ -155,7 +153,6 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
         <p className="text-gray-600">Manage your WhatsApp bulk messaging bot with automatic user management</p>
       </div>
 
-      {/* Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -163,11 +160,9 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
             <MessageCircle className="h-4 w-4 text-gray-500" />
           </CardHeader>
           <CardContent>
-            <div className="flex items-center space-x-2">
-              <Badge variant={status.isReady ? "default" : status.isRunning ? "secondary" : "outline"}>
-                {status.isReady ? "Ready" : status.isRunning ? "Starting" : "Stopped"}
-              </Badge>
-            </div>
+            <Badge variant={status.isReady ? "default" : status.isRunning ? "secondary" : "outline"}>
+              {status.isReady ? "Ready" : status.isRunning ? "Starting" : "Stopped"}
+            </Badge>
           </CardContent>
         </Card>
 
@@ -197,19 +192,14 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
           </CardHeader>
           <CardContent className="space-y-2">
             {!status.isRunning ? (
-              <Button onClick={startBot} className="w-full">
-                🚀 Start Bot + Activate All Users
-              </Button>
+              <Button onClick={startBot} className="w-full">🚀 Start Bot + Activate All Users</Button>
             ) : (
-              <Button onClick={stopBot} variant="destructive" className="w-full">
-                🛑 Stop Bot + Deactivate All Users
-              </Button>
+              <Button onClick={stopBot} variant="destructive" className="w-full">🛑 Stop Bot + Deactivate All Users</Button>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* QR Code Display */}
       {status.qrCode && (
         <Card>
           <CardHeader>
@@ -228,28 +218,21 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
         </Card>
       )}
 
-      {/* CSV Upload */}
       <Card>
         <CardHeader>
           <CardTitle>Upload Contacts & Users</CardTitle>
-          <CardDescription>
-            Upload a CSV file with name and phone columns. This will load contacts for messaging AND add users to the
-            management table.
-          </CardDescription>
+          <CardDescription>Upload a CSV file with name and phone columns. This will load contacts for messaging AND add users to the management table.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center space-x-2">
             <Input type="file" accept=".csv" onChange={(e) => setCsvFile(e.target.files?.[0] || null)} />
             <Button onClick={uploadCSV} disabled={!csvFile}>
-              <Upload className="h-4 w-4 mr-2" />
-              Upload CSV
+              <Upload className="h-4 w-4 mr-2" /> Upload CSV
             </Button>
           </div>
-
         </CardContent>
       </Card>
 
-      {/* Message Template */}
       <Card>
         <CardHeader>
           <CardTitle>Message Template</CardTitle>
@@ -268,14 +251,12 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
         </CardContent>
       </Card>
 
-      {/* Error Display */}
       {status.error && (
         <Alert variant="destructive">
           <AlertDescription>{status.error}</AlertDescription>
         </Alert>
       )}
 
-      {/* Logs */}
       <Card>
         <CardHeader>
           <CardTitle>Activity Logs</CardTitle>
@@ -295,7 +276,6 @@ Balas pesan ini untuk informasi lebih lanjut mengenai cara pengaktifan kembali.`
         </CardContent>
       </Card>
 
-      {/* User Management */}
       <UserManagement />
     </div>
   )
