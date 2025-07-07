@@ -1,39 +1,21 @@
 import { NextResponse } from "next/server"
 import { WhatsAppService } from "@/lib/whatsapp-service"
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url)
-    const phone = searchParams.get('phone')
-    
     const service = WhatsAppService.getInstance()
-    
-    let responseData;
-    if (phone) {
-      // Get specific chat history
-      const chatHistory = service.getChatHistory(phone)
-      responseData = { 
-        success: true, 
-        data: chatHistory,
-        message: `Retrieved chat history for ${phone}`
-      }
-    } else {
-      // Get all chat history
-      const allChatHistory = service.getAllChatHistory()
-      responseData = { 
-        success: true, 
-        data: allChatHistory,
-        message: 'Retrieved all chat history'
-      }
-    }
+    const chatHistory = service.getAllChatHistory()
 
-    return NextResponse.json(responseData)
+    return NextResponse.json({
+      success: true,
+      chatHistory,
+    })
   } catch (error) {
     console.error("Failed to get chat history:", error)
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
-      data: null,
-    }, { status: 500 })
+      chatHistory: {},
+    })
   }
 }

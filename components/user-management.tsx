@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Plus, Edit, Trash2, User, RefreshCw, AlertCircle, Play, Square } from "lucide-react"
+import { Plus, Edit, Trash2, User, RefreshCw, AlertCircle, Play, Square, MessageSquare } from "lucide-react"
 
 interface UserInterface {
     id: string
@@ -31,6 +31,13 @@ interface UserInterface {
     lastActivity?: string
 }
 
+interface ChatMessage {
+    from: string
+    content: string
+    timestamp: string
+    isIncoming: boolean
+}
+
 export function UserManagement() {
     const [users, setUsers] = useState<UserInterface[]>([])
     const [loading, setLoading] = useState(false)
@@ -39,13 +46,28 @@ export function UserManagement() {
     const [editingUser, setEditingUser] = useState<UserInterface | null>(null)
     const [formData, setFormData] = useState({ name: "", phone: "" })
 
+    // ✅ TAMBAHAN: State untuk chat history
+    const [chatHistory, setChatHistory] = useState<{ [phone: string]: ChatMessage[] }>({})
+    const [selectedUserChat, setSelectedUserChat] = useState<ChatMessage[]>([])
+    const [isChatDialogOpen, setIsChatDialogOpen] = useState(false)
+    const [selectedUserName, setSelectedUserName] = useState("")
+
     useEffect(() => {
         fetchUsers()
+        fetchChatHistory()
+
+        // ✅ SOLUSI 1: Polling chat history setiap 3 detik untuk real-time updates
+        const chatPollingInterval = setInterval(() => {
+            fetchChatHistory()
+        }, 3000)
 
         // Listen for refresh events from CSV upload
         const handleRefresh = () => {
             console.log("Refreshing users due to CSV upload...")
-            setTimeout(() => fetchUsers(), 1000) // Add small delay to ensure data is saved
+            setTimeout(() => {
+                fetchUsers()
+                fetchChatHistory()
+            }, 1000)
         }
 
         // Listen for bulk user updates from bot start/stop
@@ -54,12 +76,29 @@ export function UserManagement() {
             fetchUsers()
         }
 
+        // ✅ SOLUSI 2: Listen for new messages dan langsung update chat history
+        const handleNewMessage = () => {
+            console.log("New message received, refreshing chat history...")
+            fetchChatHistory()
+        }
+
+        // ✅ SOLUSI 3: Listen for message sent event
+        const handleMessageSent = () => {
+            console.log("Message sent, refreshing chat history...")
+            fetchChatHistory()
+        }
+
         window.addEventListener("refreshUsers", handleRefresh)
         window.addEventListener("bulkUserUpdate", handleBulkUpdate)
+        window.addEventListener("newMessage", handleNewMessage)
+        window.addEventListener("messageSent", handleMessageSent) // ✅ TAMBAHAN
 
         return () => {
+            clearInterval(chatPollingInterval) // ✅ CLEANUP polling
             window.removeEventListener("refreshUsers", handleRefresh)
             window.removeEventListener("bulkUserUpdate", handleBulkUpdate)
+            window.removeEventListener("newMessage", handleNewMessage)
+            window.removeEventListener("messageSent", handleMessageSent) // ✅ TAMBAHAN
         }
     }, [])
 
@@ -82,6 +121,49 @@ export function UserManagement() {
         } finally {
             setLoading(false)
         }
+    }
+
+    // ✅ SOLUSI 4: Optimized fetch chat history dengan timestamp tracking
+    const fetchChatHistory = async () => {
+        try {
+            const response = await fetch("/api/whatsapp/chat-history")
+            const data = await response.json()
+            if (data.success) {
+                // ✅ SOLUSI 5: Hanya update jika ada perubahan
+                const newChatHistory = data.chatHistory
+                const hasChanges = JSON.stringify(newChatHistory) !== JSON.stringify(chatHistory)
+
+                if (hasChanges) {
+                    setChatHistory(newChatHistory)
+                    console.log("Chat history updated:", Object.keys(newChatHistory).length, "conversations")
+
+                    // ✅ SOLUSI 6: Update selected user chat jika dialog sedang terbuka
+                    if (isChatDialogOpen && selectedUserName) {
+                        const selectedUser = users.find((u) => u.name === selectedUserName)
+                        if (selectedUser) {
+                            const updatedMessages = newChatHistory[selectedUser.phone] || []
+                            setSelectedUserChat(updatedMessages)
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("Failed to fetch chat history:", error)
+        }
+    }
+
+    // ✅ TAMBAHAN: Function untuk buka chat dialog
+    const openChatDialog = (user: UserInterface) => {
+        const userMessages = chatHistory[user.phone] || []
+        setSelectedUserChat(userMessages)
+        setSelectedUserName(user.name)
+        setIsChatDialogOpen(true)
+    }
+
+    // ✅ TAMBAHAN: Function untuk hitung jumlah pesan masuk dari user
+    const getIncomingMessagesCount = (phone: string): number => {
+        const messages = chatHistory[phone] || []
+        return messages.filter((msg) => msg.isIncoming).length
     }
 
     const handleBulkActivate = async () => {
@@ -254,14 +336,24 @@ export function UserManagement() {
                         <CardTitle className="flex items-center gap-2">
                             <User className="h-5 w-5" />
                             User Management
+                            {/* ✅ TAMBAHAN: Indicator untuk real-time updates */}
+                            <Badge variant="outline" className="text-xs">
+                                🔄 Live Updates
+                            </Badge>
                         </CardTitle>
                         <CardDescription>
-                            Manage WhatsApp bot users and their status. Users are automatically activated when bot starts and
-                            deactivated when bot stops.
+                            Manage WhatsApp bot users and their status. Chat replies update automatically every 3 seconds.
                         </CardDescription>
                     </div>
                     <div className="flex gap-2">
-                        <Button variant="outline" onClick={fetchUsers} disabled={loading}>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                fetchUsers()
+                                fetchChatHistory()
+                            }}
+                            disabled={loading}
+                        >
                             <RefreshCw className="h-4 w-4 mr-2" />
                             {loading ? "Loading..." : "Refresh"}
                         </Button>
@@ -322,8 +414,8 @@ export function UserManagement() {
                 <Alert className="mb-4">
                     <AlertCircle className="h-4 w-4" />
                     <AlertDescription>
-                        <strong>Auto-Management:</strong> When you press "Start Bot", all users will be automatically activated.
-                        When you press "Stop Bot", all users will be automatically deactivated.
+                        <strong>Real-time Updates:</strong> Chat replies are automatically updated every 3 seconds. No need to
+                        refresh the page!
                     </AlertDescription>
                 </Alert>
 
@@ -378,58 +470,83 @@ export function UserManagement() {
                                 <TableHead>Status</TableHead>
                                 <TableHead>Created</TableHead>
                                 <TableHead>Last Activity</TableHead>
+                                <TableHead>Chat Replies</TableHead>
                                 <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                                         Loading users...
                                     </TableCell>
                                 </TableRow>
                             ) : users.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                                         No users found. Upload a CSV file above or add users manually to get started.
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                users.map((user) => (
-                                    <TableRow key={user.id}>
-                                        <TableCell className="font-medium">{user.name}</TableCell>
-                                        <TableCell>{user.phone}</TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center space-x-2">
-                                                <Switch
-                                                    checked={user.isActive}
-                                                    onCheckedChange={() => handleToggleStatus(user.id)}
-                                                    disabled={loading}
-                                                />
-                                                <Badge variant={user.isActive ? "default" : "secondary"}>
-                                                    {user.isActive ? "Active" : "Inactive"}
-                                                </Badge>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>{new Date(user.createdAt).toLocaleDateString()}</TableCell>
-                                        <TableCell>{user.lastActivity ? new Date(user.lastActivity).toLocaleString() : "Never"}</TableCell>
-                                        <TableCell className="text-right">
-                                            <div className="flex items-center justify-end space-x-2">
-                                                <Button variant="outline" size="sm" onClick={() => openEditDialog(user)}>
-                                                    <Edit className="h-4 w-4" />
-                                                </Button>
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => handleDeleteUser(user.id)}
-                                                    disabled={loading}
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        </TableCell>
-                                    </TableRow>
-                                ))
+                                users.map((user) => {
+                                    const incomingCount = getIncomingMessagesCount(user.phone)
+                                    return (
+                                        <TableRow key={user.id}>
+                                            <TableCell className="font-medium">{user.name}</TableCell>
+                                            <TableCell>{user.phone}</TableCell>
+                                            <TableCell>
+                                                <div className="flex items-center space-x-2">
+                                                    <Switch
+                                                        checked={user.isActive}
+                                                        onCheckedChange={() => handleToggleStatus(user.id)}
+                                                        disabled={loading}
+                                                    />
+                                                    <Badge variant={user.isActive ? "default" : "secondary"}>
+                                                        {user.isActive ? "Active" : "Inactive"}
+                                                    </Badge>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>{new Date(user.createdAt).toLocaleDateString()}</TableCell>
+                                            <TableCell>
+                                                {user.lastActivity ? new Date(user.lastActivity).toLocaleString() : "Never"}
+                                            </TableCell>
+                                            {/* ✅ TAMBAHAN: Chat Replies Column dengan real-time updates */}
+                                            <TableCell>
+                                                {incomingCount > 0 ? (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => openChatDialog(user)}
+                                                        className="flex items-center gap-2"
+                                                    >
+                                                        <MessageSquare className="h-4 w-4" />
+                                                        <span className="font-medium">{incomingCount}</span>
+                                                        {incomingCount === 1 ? "reply" : "replies"}
+                                                        {/* ✅ TAMBAHAN: Indicator untuk pesan baru */}
+                                                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                                                    </Button>
+                                                ) : (
+                                                    <span className="text-muted-foreground text-sm">No replies</span>
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                <div className="flex items-center justify-end space-x-2">
+                                                    <Button variant="outline" size="sm" onClick={() => openEditDialog(user)}>
+                                                        <Edit className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => handleDeleteUser(user.id)}
+                                                        disabled={loading}
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    )
+                                })
                             )}
                         </TableBody>
                     </Table>
@@ -468,6 +585,48 @@ export function UserManagement() {
                             </Button>
                             <Button onClick={handleUpdateUser} disabled={loading}>
                                 {loading ? "Updating..." : "Update User"}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                {/* ✅ TAMBAHAN: Chat History Dialog dengan real-time updates */}
+                <Dialog open={isChatDialogOpen} onOpenChange={setIsChatDialogOpen}>
+                    <DialogContent className="max-w-2xl max-h-[80vh]">
+                        <DialogHeader>
+                            <DialogTitle className="flex items-center gap-2">
+                                <MessageSquare className="h-5 w-5" />
+                                Chat History - {selectedUserName}
+                                <Badge variant="outline" className="text-xs">
+                                    🔄 Live
+                                </Badge>
+                            </DialogTitle>
+                            <DialogDescription>All incoming messages from this user (updates automatically)</DialogDescription>
+                        </DialogHeader>
+                        <div className="max-h-96 overflow-y-auto space-y-3">
+                            {selectedUserChat.length === 0 ? (
+                                <p className="text-muted-foreground text-center py-8">No messages found</p>
+                            ) : (
+                                selectedUserChat
+                                    .filter((msg) => msg.isIncoming) // Hanya tampilkan pesan masuk
+                                    .map((message, index) => (
+                                        <div key={index} className="border rounded-lg p-3 bg-gray-50">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <Badge variant="secondary" className="text-xs">
+                                                    Message {index + 1}
+                                                </Badge>
+                                                <span className="text-xs text-muted-foreground">
+                                                    {new Date(message.timestamp).toLocaleString()}
+                                                </span>
+                                            </div>
+                                            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                                        </div>
+                                    ))
+                            )}
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsChatDialogOpen(false)}>
+                                Close
                             </Button>
                         </DialogFooter>
                     </DialogContent>
