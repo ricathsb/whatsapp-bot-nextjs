@@ -9,10 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-// import { MessageCircle, Users, Send, Upload, Trash2 } from "@/components/icons"
-// import { Trash2 } from 'lucide-react'
-import { MessageCircle, Users, Send, Upload, Trash2 } from "lucide-react"
-// import { Trash2 } from 'lucide-react'
+import { MessageCircle, Users, Send, Upload, Trash2, LogOut } from 'lucide-react'
 import { UserManagement } from "@/components/user-management"
 
 interface BotStatus {
@@ -20,7 +17,7 @@ interface BotStatus {
   isReady: boolean
   qrCode?: string
   contactsCount: number
-  usersCount: number // ✅ Tambahkan ini
+  usersCount: number
   messagesSent: number
   error?: string
 }
@@ -31,12 +28,13 @@ export default function WhatsAppBot() {
     isRunning: false,
     isReady: false,
     contactsCount: 0,
-    usersCount: 0, // ✅ Tambahkan ini
+    usersCount: 0,
     messagesSent: 0,
   })
   const [message, setMessage] = useState("Halo {name}, kami perhatikan status kepesertaan BPJS Ketenagakerjaan Anda sedang tidak aktif...")
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [logs, setLogs] = useState<string[]>([])
+  const [isAuthChecking, setIsAuthChecking] = useState(true)
 
   useEffect(() => {
     checkStatus()
@@ -50,14 +48,27 @@ export default function WhatsAppBot() {
         const res = await fetch("/api/auth/me")
         if (!res.ok) {
           router.push("/login")
+          return
         }
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        setIsAuthChecking(false)
       } catch (err) {
+        console.error("Auth check failed:", err)
         router.push("/login")
       }
     }
     checkAuth()
   }, [router])
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" })
+      router.push("/login")
+    } catch (error) {
+      console.error("Logout failed:", error)
+      // Force redirect even if logout API fails
+      router.push("/login")
+    }
+  }
 
   const checkStatus = async () => {
     try {
@@ -103,6 +114,7 @@ export default function WhatsAppBot() {
 
   const uploadCSV = async () => {
     if (!csvFile) return
+
     const formData = new FormData()
     formData.append("csv", csvFile)
 
@@ -131,7 +143,6 @@ export default function WhatsAppBot() {
     }
   }
 
-  // ✅ TAMBAHAN: Function untuk clear contacts
   const clearContacts = async () => {
     if (!confirm("Are you sure you want to clear ALL contacts? This will remove all contacts for messaging.")) return
 
@@ -150,7 +161,6 @@ export default function WhatsAppBot() {
     }
   }
 
-  // ✅ TAMBAHAN: Function untuk clear users
   const clearUsers = async () => {
     if (!confirm("Are you sure you want to clear ALL users? This will remove all users from management table.")) return
 
@@ -161,7 +171,6 @@ export default function WhatsAppBot() {
       const data = await response.json()
       if (data.success) {
         setLogs((prev) => [...prev, "🗑️ All users cleared successfully"])
-        // Trigger refresh of user management table
         window.dispatchEvent(new CustomEvent("refreshUsers"))
       } else {
         setLogs((prev) => [...prev, `Clear users failed: ${data.error}`])
@@ -191,11 +200,29 @@ export default function WhatsAppBot() {
     }
   }
 
+  // Show loading while checking authentication
+  if (isAuthChecking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
+          <p>Checking authentication...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold mb-2">WhatsApp Bot Dashboard</h1>
-        <p className="text-gray-600">Manage your WhatsApp bulk messaging bot with automatic user management</p>
+      <div className="flex justify-between items-center">
+        <div className="text-center flex-1">
+          <h1 className="text-3xl font-bold mb-2">WhatsApp Bot Dashboard</h1>
+          <p className="text-gray-600">Manage your WhatsApp bulk messaging bot with automatic user management</p>
+        </div>
+        <Button onClick={handleLogout} variant="outline" size="sm">
+          <LogOut className="h-4 w-4 mr-2" />
+          Logout
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -271,14 +298,10 @@ export default function WhatsAppBot() {
       <Card>
         <CardHeader>
           <CardTitle>Upload Contacts & Users</CardTitle>
-
-          <CardDescription>Upload a CSV file with name and phone columns. This will load contacts for messaging AND add users to the management table.</CardDescription>
-
           <CardDescription>
             Upload a CSV file with name and phone columns. This will ADD contacts for messaging AND add users to the
             management table (data will accumulate, not replace).
           </CardDescription>
-
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center space-x-2">
@@ -287,9 +310,6 @@ export default function WhatsAppBot() {
               <Upload className="h-4 w-4 mr-2" /> Upload CSV
             </Button>
           </div>
-
-
-          {/* ✅ TAMBAHAN: Clear buttons */}
           <div className="flex gap-2 pt-2 border-t">
             <Button onClick={clearContacts} variant="outline" size="sm">
               <Trash2 className="h-4 w-4 mr-2" />
