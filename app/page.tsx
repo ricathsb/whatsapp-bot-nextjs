@@ -122,6 +122,8 @@ export default function WhatsAppBot() {
       const response = await fetch("/api/whatsapp/upload-csv", {
         method: "POST",
         body: formData,
+        credentials: "include", // ⬅️ PENTING agar cookie auth-token dikirim
+
       })
       const data = await response.json()
       if (data.success) {

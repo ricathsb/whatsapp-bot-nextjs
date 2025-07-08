@@ -1,70 +1,49 @@
-import { NextResponse } from "next/server"
-import { WhatsAppService } from "@/lib/whatsapp-service"
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { NextRequest, NextResponse } from "next/server"
+import { PrismaClient } from "@prisma/client"
+import jwt from "jsonwebtoken"
 
-// GET - Get all users
-export async function GET() {
-    try {
-        const service = WhatsAppService.getInstance()
-        const users = service.getUsers()
+const prisma = new PrismaClient()
+const JWT_SECRET = process.env.JWT_SECRET!
 
-        return NextResponse.json({
-            success: true,
-            data: users,
-        })
-    } catch (error) {
-        console.error("Failed to get users:", error)
-        return NextResponse.json(
-            {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
-            },
-            { status: 500 },
-        )
+export async function GET(request: NextRequest) {
+  try {
+    // Ambil token dari cookie
+    const cookieHeader = request.headers.get("cookie")
+    const token = cookieHeader
+      ?.split(";")
+      .find((c) => c.trim().startsWith("auth-token="))
+      ?.split("=")[1]
+
+    if (!token) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
     }
-}
 
-// POST - Add new user
-export async function POST(request: Request) {
+    // Verifikasi JWT
+    let decoded
     try {
-        const { name, phone } = await request.json()
-
-        if (!name || !phone) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    error: "Name and phone are required",
-                },
-                { status: 400 },
-            )
-        }
-
-        // Validate phone number
-        const normalizedPhone = phone.replace(/\D/g, "")
-        if (normalizedPhone.length < 10) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    error: "Invalid phone number",
-                },
-                { status: 400 },
-            )
-        }
-
-        const service = WhatsAppService.getInstance()
-        const user = service.addUser(name, phone)
-
-        return NextResponse.json({
-            success: true,
-            data: user,
-        })
-    } catch (error) {
-        console.error("Failed to add user:", error)
-        return NextResponse.json(
-            {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
-            },
-            { status: 500 },
-        )
+      decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
+    } catch (err) {
+      return NextResponse.json({ success: false, error: "Invalid token" }, { status: 401 })
     }
+
+    const userId = decoded.userId
+
+    // Ambil hanya nasabah milik user ini
+    const nasabahList = await prisma.nasabah.findMany({
+      where: { userId },
+      orderBy: { updatedAt: "desc" },
+    })
+
+    return NextResponse.json({
+      success: true,
+      data: nasabahList,
+    })
+  } catch (error) {
+    console.error("Failed to fetch nasabah:", error)
+    return NextResponse.json({
+      success: false,
+      error: "Internal server error",
+    }, { status: 500 })
+  }
 }
