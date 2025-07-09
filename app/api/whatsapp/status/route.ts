@@ -5,7 +5,7 @@ export async function GET() {
   try {
     const service = WhatsAppService.getInstance()
     const status = service.getStatus()
-    const users = service.getUsers() // ✅ Ambil users data
+    const users = service.getUsers() 
 
     return NextResponse.json({
       ...status,

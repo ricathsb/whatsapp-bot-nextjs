@@ -1,107 +1,130 @@
-// ===== CONTACT MANAGER (FIXED) =====
-import type { Contact } from "./types/whatsapp"
-import { PhoneNormalizer } from "./phone-normalizer"
-import { CSVParser } from "./csv-parser"
+import type { Contact } from "./types/whatsapp";
+import { PhoneNormalizer } from "./phone-normalizer";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 export class ContactManager {
-    private contacts: Contact[] = []
+  private contacts: Contact[] = [];
 
-    async loadContactsFromCSV(csvContent: string): Promise<number> {
-        console.log("[ContactManager] ===== LOADING CONTACTS FROM CSV =====")
-        // ❌ MASALAH LAMA: this.contacts = [] // Clear semua contact sebelumnya
-        // ✅ SOLUSI BARU: Tidak clear, biarkan terakumulasi seperti users
+  async loadContactsFromDatabase(): Promise<number> {
+    try {
+      console.log("[ContactManager] ===== LOADING CONTACTS FROM DATABASE =====");
+      console.log(`[ContactManager] Current contacts before import: ${this.contacts.length}`);
 
-        const { headers, rows } = CSVParser.parse(csvContent)
-        const { nameIndex, phoneIndex } = CSVParser.findColumnIndices(headers)
+      const nasabahList = await prisma.nasabah.findMany({
+        select: {
+          nama: true,
+          no_hp: true,
+        },
+      });
 
-        if (nameIndex === -1 || phoneIndex === -1) {
-            throw new Error("Cannot find required name and phone columns in CSV")
+      if (!nasabahList || nasabahList.length === 0) {
+        console.warn("[ContactManager] No contacts found in database");
+        return this.contacts.length;
+      }
+
+      let addedCount = 0;
+      let skippedCount = 0;
+      let invalidCount = 0;
+
+      for (const n of nasabahList) {
+        try {
+          const name = n.nama?.trim() || "";
+          const phoneRaw = n.no_hp?.trim() || "";
+
+          if (!name || !phoneRaw) {
+            skippedCount++;
+            continue;
+          }
+
+          if (!PhoneNormalizer.isValid(phoneRaw)) {
+            console.log(`[ContactManager] Invalid phone number format: ${phoneRaw}`);
+            invalidCount++;
+            continue;
+          }
+
+          const phone = PhoneNormalizer.normalize(phoneRaw);
+
+          const existingContact = this.contacts.find((c) => c.phone === phone);
+          if (existingContact) {
+            console.log(`[ContactManager] Duplicate phone ${phone} (existing: ${existingContact.name}, new: ${name})`);
+            skippedCount++;
+            continue;
+          }
+
+          this.contacts.push({ name, phone });
+          addedCount++;
+        } catch (error) {
+          console.error(`[ContactManager] Error processing contact ${JSON.stringify(n)}:`, error);
+          invalidCount++;
         }
+      }
 
-        console.log(`[ContactManager] Processing ${rows.length} contact rows...`)
-        console.log(`[ContactManager] Current contacts before import: ${this.contacts.length}`)
+      console.log("[ContactManager] ===== CONTACT LOADING SUMMARY =====");
+      console.log(`[ContactManager] Total in database: ${nasabahList.length}`);
+      console.log(`[ContactManager] Successfully added: ${addedCount}`);
+      console.log(`[ContactManager] Skipped duplicates: ${skippedCount}`);
+      console.log(`[ContactManager] Invalid entries: ${invalidCount}`);
+      console.log(`[ContactManager] Total contacts now: ${this.contacts.length}`);
 
-        let addedCount = 0
-        let skippedCount = 0
-
-        for (let i = 0; i < rows.length; i++) {
-            const row = rows[i]
-            if (row.length <= Math.max(nameIndex, phoneIndex)) continue
-
-            const name = row[nameIndex]?.trim()
-            const phoneRaw = row[phoneIndex]?.trim()
-
-            if (!name || !phoneRaw) continue
-            if (!PhoneNormalizer.isValid(phoneRaw)) continue
-
-            const phone = PhoneNormalizer.normalize(phoneRaw)
-
-            // ✅ TAMBAHAN: Check duplicate contact berdasarkan phone
-            const existingContact = this.contacts.find((c) => c.phone === phone)
-            if (existingContact) {
-                console.log(
-                    `[ContactManager] Contact with phone ${phone} already exists (${existingContact.name}), skipping ${name}`,
-                )
-                skippedCount++
-                continue
-            }
-
-            this.contacts.push({ name, phone })
-            addedCount++
-
-            // Log first few contacts for debugging
-            if (i < 3) {
-                console.log(`[ContactManager] Added contact ${addedCount}: ${name} (${phone})`)
-            }
-        }
-
-        console.log("[ContactManager] ===== CONTACT LOADING SUMMARY =====")
-        console.log(`[ContactManager] Successfully added: ${addedCount}`)
-        console.log(`[ContactManager] Skipped (duplicates): ${skippedCount}`)
-        console.log(`[ContactManager] Total contacts in system: ${this.contacts.length}`)
+      if (this.contacts.length > 0) {
         console.log(
-            "[ContactManager] Sample contacts:",
-            this.contacts.slice(0, 3).map((c) => `${c.name} (${c.phone})`),
-        )
+          "[ContactManager] Sample contacts:",
+          this.contacts.slice(0, 3).map((c) => `${c.name} (${c.phone})`)
+        );
+      }
 
-        return addedCount // Return jumlah yang ditambahkan, bukan total
+      return this.contacts.length;
+    } catch (error) {
+      console.error("[ContactManager] Database error:", error);
+      throw error;
     }
+  }
 
-    getContacts(): Contact[] {
-        return [...this.contacts]
+  getContacts(): Contact[] {
+    return [...this.contacts];
+  }
+
+  getContactsCount(): number {
+    return this.contacts.length;
+  }
+
+  clearContacts(): void {
+    console.log(`[ContactManager] Clearing all ${this.contacts.length} contacts`);
+    this.contacts = [];
+  }
+
+  removeDuplicateContacts(): number {
+    const uniqueContacts = new Map<string, Contact>();
+    this.contacts.forEach((contact) => {
+      if (!uniqueContacts.has(contact.phone)) {
+        uniqueContacts.set(contact.phone, contact);
+      }
+    });
+
+    const originalCount = this.contacts.length;
+    this.contacts = Array.from(uniqueContacts.values());
+    const removedCount = originalCount - this.contacts.length;
+
+    if (removedCount > 0) {
+      console.log(`[ContactManager] Removed ${removedCount} duplicate contacts`);
     }
+    return removedCount;
+  }
 
-    getContactsCount(): number {
-        return this.contacts.length
+  getContactByPhone(phone: string): Contact | null {
+    try {
+      const normalizedPhone = PhoneNormalizer.normalize(phone);
+      return this.contacts.find((c) => c.phone === normalizedPhone) || null;
+    } catch (error) {
+      console.error(`[ContactManager] Error finding contact for phone ${phone}:`, error);
+      return null;
     }
+  }
 
-    // ✅ TAMBAHAN: Method untuk clear contacts jika diperlukan
-    clearContacts(): void {
-        console.log(`[ContactManager] Clearing all ${this.contacts.length} contacts`)
-        this.contacts = []
-    }
-
-    // ✅ TAMBAHAN: Method untuk remove duplicate contacts
-    removeDuplicateContacts(): number {
-        const uniqueContacts = new Map<string, Contact>()
-
-        this.contacts.forEach((contact) => {
-            if (!uniqueContacts.has(contact.phone)) {
-                uniqueContacts.set(contact.phone, contact)
-            }
-        })
-
-        const originalCount = this.contacts.length
-        this.contacts = Array.from(uniqueContacts.values())
-        const removedCount = originalCount - this.contacts.length
-
-        console.log(`[ContactManager] Removed ${removedCount} duplicate contacts`)
-        return removedCount
-    }
-
-    // ✅ TAMBAHAN: Method untuk get contact by phone
-    getContactByPhone(phone: string): Contact | null {
-        const normalizedPhone = PhoneNormalizer.normalize(phone)
-        return this.contacts.find((c) => c.phone === normalizedPhone) || null
-    }
+  async refreshContacts(): Promise<number> {
+    this.clearContacts();
+    return this.loadContactsFromDatabase();
+  }
 }

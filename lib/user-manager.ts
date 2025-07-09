@@ -1,7 +1,8 @@
-// ===== USER MANAGER =====
 import type { User } from "./types/whatsapp"
 import { PhoneNormalizer } from "./phone-normalizer"
-import { CSVParser } from "./csv-parser"
+import { PrismaClient } from "@prisma/client"
+
+const prisma = new PrismaClient()
 
 export class UserManager {
     private users: User[] = []
@@ -9,7 +10,6 @@ export class UserManager {
     addUser(name: string, phone: string): User {
         const normalizedPhone = PhoneNormalizer.normalize(phone)
 
-        // Check if user already exists by phone
         const existingUserByPhone = this.users.find((u) => u.phone === normalizedPhone)
         if (existingUserByPhone) {
             console.log(`[UserManager] User with phone ${normalizedPhone} already exists, skipping ${name}`)
@@ -20,7 +20,7 @@ export class UserManager {
             id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
             name,
             phone: normalizedPhone,
-            isActive: false, // Default to inactive for security
+            isActive: false,
             createdAt: new Date(),
         }
 
@@ -108,42 +108,25 @@ export class UserManager {
         this.users = []
     }
 
-    async loadUsersFromCSV(csvContent: string): Promise<number> {
-        console.log("[UserManager] ===== LOADING USERS FROM CSV =====")
+    async loadUsersFromDatabase(): Promise<number> {
+        console.log("[UserManager] ===== LOADING USERS FROM DATABASE =====")
 
-        const { headers, rows } = CSVParser.parse(csvContent)
-        const { nameIndex, phoneIndex, suggestions } = CSVParser.findColumnIndices(headers)
-
-        if (nameIndex === -1 || phoneIndex === -1) {
-            const errorMessage = `Cannot find required columns in CSV.${suggestions}`
-            console.error("[UserManager]", errorMessage)
-            throw new Error(errorMessage)
-        }
+        const nasabahList = await prisma.nasabah.findMany({
+            select: {
+                nama: true,
+                no_hp: true,
+            },
+        })
 
         let addedCount = 0
         let skippedCount = 0
-        let errorCount = 0
 
-        for (let i = 0; i < rows.length; i++) {
-            const row = rows[i]
+        for (const n of nasabahList) {
+            const name = n.nama.trim()
+            const phoneRaw = n.no_hp.trim()
 
-            if (row.length <= Math.max(nameIndex, phoneIndex)) {
-                errorCount++
-                continue
-            }
-
-            const name = row[nameIndex]?.trim()
-            const phoneRaw = row[phoneIndex]?.trim()
-
-            if (!name || !phoneRaw) {
-                errorCount++
-                continue
-            }
-
-            if (!PhoneNormalizer.isValid(phoneRaw)) {
-                errorCount++
-                continue
-            }
+            if (!name || !phoneRaw) continue
+            if (!PhoneNormalizer.isValid(phoneRaw)) continue
 
             const phone = PhoneNormalizer.normalize(phoneRaw)
             const existingUser = this.users.find((u) => u.phone === phone)
@@ -157,10 +140,9 @@ export class UserManager {
             addedCount++
         }
 
-        console.log("[UserManager] ===== CSV LOADING SUMMARY =====")
+        console.log("[UserManager] ===== DATABASE LOADING SUMMARY =====")
         console.log(`[UserManager] Successfully added: ${addedCount}`)
         console.log(`[UserManager] Skipped (duplicates): ${skippedCount}`)
-        console.log(`[UserManager] Errors (invalid data): ${errorCount}`)
         console.log(`[UserManager] Total users in system: ${this.users.length}`)
 
         return addedCount
