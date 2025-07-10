@@ -4,28 +4,36 @@ import { WhatsAppService } from '@/lib/whatsapp-service'
 
 export async function GET(req: NextRequest) {
   const encoder = new TextEncoder()
+
   const stream = new ReadableStream({
     start(controller) {
-      const send = () => {
-        const service = WhatsAppService.getInstance()
-        const chatHistory = service.getAllChatHistory()
+      const service = WhatsAppService.getInstance()
 
-        const payload = `data: ${JSON.stringify({
-          type: 'chat-history',
-          chatHistory
-        })}\n\n`
-
-        controller.enqueue(encoder.encode(payload))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const send = (payload: any) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
       }
 
-      // Kirim langsung saat koneksi dibuka
-      send()
+      // Langsung kirim chatHistory awal (sekali saja saat koneksi dibuka)
+      send({
+        type: 'chat-history',
+        chatHistory: service.getAllChatHistory(),
+      })
 
-      const interval = setInterval(send, 3000)
+      // Kirim hanya saat ada pesan baru
+      const listener = ({ contact, phone, message }) => {
+        send({
+          type: 'chat-update',
+          contact,
+          phone,
+          message,
+        })
+      }
 
-      // Cleanup saat koneksi ditutup
+      service.on('chat-update', listener)
+
       req.signal.addEventListener('abort', () => {
-        clearInterval(interval)
+        service.off('chat-update', listener)
         controller.close()
       })
     }
@@ -35,7 +43,7 @@ export async function GET(req: NextRequest) {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      Connection: 'keep-alive'
+      Connection: 'keep-alive',
     }
   })
 }

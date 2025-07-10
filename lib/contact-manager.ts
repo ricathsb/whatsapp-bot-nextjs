@@ -12,12 +12,14 @@ export class ContactManager {
       console.log("[ContactManager] ===== LOADING CONTACTS FROM DATABASE =====");
       console.log(`[ContactManager] Current contacts before import: ${this.contacts.length}`);
 
-      const nasabahList = await prisma.nasabah.findMany({
+            const nasabahList = await prisma.nasabah.findMany({
         select: {
           nama: true,
           no_hp: true,
+          isActive: true, // ✅ tambahkan ini
         },
       });
+
 
       if (!nasabahList || nasabahList.length === 0) {
         console.warn("[ContactManager] No contacts found in database");
@@ -53,7 +55,7 @@ export class ContactManager {
             continue;
           }
 
-          this.contacts.push({ name, phone });
+        this.contacts.push({ name, phone, isActive: n.isActive ?? true });
           addedCount++;
         } catch (error) {
           console.error(`[ContactManager] Error processing contact ${JSON.stringify(n)}:`, error);

@@ -230,7 +230,9 @@ private async handleIncomingMessage(msg: Message) {
   try {
     const phone = msg.from.split("@")[0]
     const contacts = this.contactManager.getContacts()
-    const contact = contacts.find((c) => c.phone === phone) || { name: phone, phone }
+
+    // Ambil contact lengkap (termasuk isActive)
+    const contact = contacts.find((c) => c.phone === phone) || { name: phone, phone, isActive: true }
 
     const message: ChatMessage = {
       from: msg.from,
@@ -239,21 +241,49 @@ private async handleIncomingMessage(msg: Message) {
       isIncoming: true,
     }
 
+    // Simpan pesan ke memori/database
     this.messageHandler.addMessage(phone, message)
     console.log(`[WhatsAppClient] 💬 Message from ${contact.name} (${phone}): ${msg.body}`)
 
-    // Emit tetap dilakukan
-    this.emit("message", { contact, message, responded: true })
+    // Emit pesan masuk ke UI (frontend)
+    this.emit("chat-update", {
+      contact,
+      message,
+      phone,
+    })
 
-    // Generate dan kirim balasan
+    // ❌ Jangan balas kalau isActive === false
+    if (!contact.isActive) {
+      console.log(`[WhatsAppClient] ⚠️ Auto-reply disabled for ${contact.name} (${phone}) (isActive = false)`)
+      return
+    }
+
+    // 🔁 Generate dan kirim balasan otomatis (jika ada)
     const replyContent = await this.messageHandler.generateReply(msg.body, contact.name)
     if (replyContent) {
       await this.sendReply(msg.from, replyContent)
+
+      // Simpan dan emit balasan bot ke frontend
+      const botMessage: ChatMessage = {
+        from: msg.to,
+        content: replyContent,
+        timestamp: new Date(),
+        isIncoming: false,
+      }
+
+      this.messageHandler.addMessage(phone, botMessage)
+      this.emit("chat-update", {
+        contact,
+        message: botMessage,
+        phone,
+      })
     }
   } catch (error) {
     console.error("[WhatsAppClient] Error processing message:", error)
   }
 }
+
+
 
 
   async sendReply(to: string, message: string): Promise<boolean> {

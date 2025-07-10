@@ -54,6 +54,34 @@ interface ChatMessage {
   isIncoming: boolean
 }
 
+// Helper function to normalize phone numbers for comparison
+const normalizePhone = (phone: string): string => {
+  // Remove all non-digits
+  const digits = phone.replace(/\D/g, "")
+
+  // If starts with 62, keep as is
+  if (digits.startsWith("62")) {
+    return digits
+  }
+
+  // If starts with 0, replace with 62
+  if (digits.startsWith("0")) {
+    return "62" + digits.substring(1)
+  }
+
+  // If doesn't start with 62 or 0, assume it needs 62 prefix
+  return "62" + digits
+}
+
+// Helper function to find user by phone number (handles different formats)
+const findUserByPhone = (users: UserInterface[], phone: string): UserInterface | undefined => {
+  const normalizedPhone = normalizePhone(phone)
+  return users.find((user) => {
+    const userPhone = normalizePhone(user.no_hp)
+    return userPhone === normalizedPhone
+  })
+}
+
 export function UserManagement() {
   const [users, setUsers] = useState<UserInterface[]>([])
   const [loading, setLoading] = useState(false)
@@ -72,11 +100,16 @@ export function UserManagement() {
   const [selectedUserChat, setSelectedUserChat] = useState<ChatMessage[]>([])
   const [isChatDialogOpen, setIsChatDialogOpen] = useState(false)
   const [selectedUserName, setSelectedUserName] = useState("")
+  const [selectedUserPhone, setSelectedUserPhone] = useState("")
 
   // SSE connection states
   const [isSSEConnected, setIsSSEConnected] = useState(false)
   const [sseError, setSSEError] = useState<string | null>(null)
+  const [lastMessageTime, setLastMessageTime] = useState<string>("")
   const eventSourceRef = useRef<EventSource | null>(null)
+
+  // Add new state for tracking read messages after the existing states
+  const [readMessages, setReadMessages] = useState<{ [phone: string]: number }>({})
 
   useEffect(() => {
     fetchUsers()
@@ -132,9 +165,9 @@ export function UserManagement() {
           const data = JSON.parse(event.data)
           console.log("SSE data received:", data)
 
+          // Handle initial chat history
           if (data.type === "chat-history") {
             const newChatHistory = data.chatHistory
-            // Update main chat history state
             setChatHistory((prevHistory) => {
               const hasChanges = JSON.stringify(newChatHistory) !== JSON.stringify(prevHistory)
               if (hasChanges) {
@@ -143,21 +176,66 @@ export function UserManagement() {
               return newChatHistory
             })
 
-            // ✅ FIXED: Always update selected user chat if dialog is open, regardless of main history changes
-            if (isChatDialogOpen && selectedUserName) {
-              // Find the selected user from current users state
-              const selectedUser = users.find((u) => u.nama === selectedUserName)
-              if (selectedUser && selectedUser.no_hp) {
-                const updatedMessages = newChatHistory[selectedUser.no_hp] || []
-                console.log(
-                  `Checking messages for ${selectedUserName} (${selectedUser.no_hp}):`,
-                  updatedMessages.length,
-                )
-                // Always update the selected chat, don't compare with previous state
+            // Update dialog if open
+            if (isChatDialogOpen && selectedUserPhone) {
+              const normalizedSelectedPhone = normalizePhone(selectedUserPhone)
+              const matchingKey = Object.keys(newChatHistory).find(
+                (key) => normalizePhone(key) === normalizedSelectedPhone,
+              )
+              if (matchingKey) {
+                const updatedMessages = newChatHistory[matchingKey] || []
                 setSelectedUserChat(updatedMessages)
                 console.log(`Updated chat dialog for ${selectedUserName} with ${updatedMessages.length} total messages`)
               }
             }
+          }
+          // Handle real-time chat updates
+          // Replace the existing chat-update handling with:
+          else if (data.type === "chat-update") {
+            const { phone, message, contact } = data
+            const normalizedPhone = normalizePhone(phone)
+
+            console.log(`📨 New message from ${contact?.name || phone}:`, message.content)
+            setLastMessageTime(new Date().toLocaleTimeString())
+
+            // Update chat history
+            setChatHistory((prev) => {
+              // Find existing key that matches this phone number
+              const existingKey = Object.keys(prev).find((key) => normalizePhone(key) === normalizedPhone)
+
+              const keyToUse = existingKey || phone
+              const prevMessages = prev[keyToUse] || []
+              const updatedMessages = [...prevMessages, message]
+
+              console.log(`Updated chat history for ${keyToUse}: ${updatedMessages.length} total messages`)
+              return { ...prev, [keyToUse]: updatedMessages }
+            })
+
+            // Update dialog if open and matches current user
+            if (isChatDialogOpen && selectedUserPhone) {
+              const normalizedSelectedPhone = normalizePhone(selectedUserPhone)
+              if (normalizedPhone === normalizedSelectedPhone) {
+                setSelectedUserChat((prev) => {
+                  const updated = [...prev, message]
+                  console.log(`📨 Realtime update: new message shown in chat dialog for ${selectedUserName}`)
+
+                  // If dialog is open and it's an incoming message, mark it as read immediately
+                  if (message.isIncoming) {
+                    setReadMessages((prevRead) => ({
+                      ...prevRead,
+                      [normalizedPhone]: (prevRead[normalizedPhone] || 0) + 1,
+                    }))
+                  }
+
+                  return updated
+                })
+              }
+            }
+
+            // Force a re-render to update message counts
+            setUsers((prevUsers) => [...prevUsers])
+          } else {
+            console.warn("Received unknown SSE data type:", data.type)
           }
         } catch (error) {
           console.error("Error parsing SSE data:", error)
@@ -196,7 +274,6 @@ export function UserManagement() {
       const response = await fetch("/api/users")
       const data = await response.json()
       console.log("Users API response:", data)
-
       if (data.success) {
         setUsers(data.data)
         console.log(`Loaded ${data.data.length} users in UI`)
@@ -211,23 +288,61 @@ export function UserManagement() {
     }
   }
 
-  // Function to open chat dialog
+  // Update the openChatDialog function to mark messages as read
   const openChatDialog = (user: UserInterface) => {
-    const userMessages = chatHistory[user.no_hp] || []
+    const normalizedUserPhone = normalizePhone(user.no_hp)
+
+    // Find matching chat history key
+    const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedUserPhone)
+
+    const userMessages = matchingKey ? chatHistory[matchingKey] || [] : []
     setSelectedUserChat(userMessages)
     setSelectedUserName(user.nama)
+    setSelectedUserPhone(user.no_hp)
     setIsChatDialogOpen(true)
+
+    // Mark all incoming messages as read
+    const incomingCount = userMessages.filter((msg) => msg.isIncoming).length
+    setReadMessages((prev) => ({
+      ...prev,
+      [normalizedUserPhone]: incomingCount,
+    }))
+
+    console.log(
+      `Opening chat for ${user.nama} (${user.no_hp}), found ${userMessages.length} messages, marked ${incomingCount} as read`,
+    )
   }
 
-  // Function to count incoming messages from user
+  // Add new function to get unread messages count
+  const getUnreadMessagesCount = (phone: string): number => {
+    const normalizedPhone = normalizePhone(phone)
+
+    // Find matching key in chat history
+    const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedPhone)
+
+    if (!matchingKey) return 0
+
+    const messages = chatHistory[matchingKey] || []
+    const totalIncoming = messages.filter((msg) => msg.isIncoming).length
+    const readCount = readMessages[normalizedPhone] || 0
+
+    return Math.max(0, totalIncoming - readCount)
+  }
+
   const getIncomingMessagesCount = (phone: string): number => {
-    const messages = chatHistory[phone] || []
+    const normalizedPhone = normalizePhone(phone)
+
+    // Find matching key in chat history
+    const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedPhone)
+
+    if (!matchingKey) return 0
+
+    const messages = chatHistory[matchingKey] || []
     return messages.filter((msg) => msg.isIncoming).length
   }
 
   const handleBulkActivate = async () => {
     if (!confirm("Are you sure you want to activate ALL users?")) return
-
     setLoading(true)
     try {
       const inactiveUsers = users.filter((u) => u.status === "tidak aktif")
@@ -247,7 +362,6 @@ export function UserManagement() {
 
   const handleBulkDeactivate = async () => {
     if (!confirm("Are you sure you want to deactivate ALL users?")) return
-
     setLoading(true)
     try {
       const activeUsers = users.filter((u) => u.status === "aktif")
@@ -270,7 +384,6 @@ export function UserManagement() {
       setError("Name and phone are required")
       return
     }
-
     setLoading(true)
     try {
       const response = await fetch("/api/users", {
@@ -278,7 +391,6 @@ export function UserManagement() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       })
-
       const data = await response.json()
       if (data.success) {
         setUsers([...users, data.data])
@@ -297,7 +409,6 @@ export function UserManagement() {
 
   const handleUpdateUser = async () => {
     if (!editingUser || !formData.nama || !formData.no_hp) return
-
     setLoading(true)
     try {
       const response = await fetch(`/api/users/${editingUser.id}`, {
@@ -305,7 +416,6 @@ export function UserManagement() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       })
-
       const data = await response.json()
       if (data.success) {
         setUsers(users.map((u) => (u.id === editingUser.id ? data.data : u)))
@@ -324,13 +434,11 @@ export function UserManagement() {
 
   const handleDeleteUser = async (id: string) => {
     if (!confirm("Are you sure you want to delete this user?")) return
-
     setLoading(true)
     try {
       const response = await fetch(`/api/users/${id}`, {
         method: "DELETE",
       })
-
       const data = await response.json()
       if (data.success) {
         setUsers(users.filter((u) => u.id !== id))
@@ -351,7 +459,6 @@ export function UserManagement() {
       const response = await fetch(`/api/users/${id}/toggle`, {
         method: "POST",
       })
-
       const data = await response.json()
       if (data.success) {
         setUsers(users.map((u) => (u.id === id ? data.data : u)))
@@ -384,18 +491,19 @@ export function UserManagement() {
   const activeUsersCount = users.filter((u) => u.status === "aktif").length
   const inactiveUsersCount = users.length - activeUsersCount
 
-  // Add this useEffect after the existing useEffects
+  // Update dialog when chat history changes
   useEffect(() => {
-    // When dialog opens, ensure we have the latest chat data
-    if (isChatDialogOpen && selectedUserName) {
-      const selectedUser = users.find((u) => u.nama === selectedUserName)
-      if (selectedUser && selectedUser.no_hp) {
-        const latestMessages = chatHistory[selectedUser.no_hp] || []
+    if (isChatDialogOpen && selectedUserPhone) {
+      const normalizedSelectedPhone = normalizePhone(selectedUserPhone)
+      const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedSelectedPhone)
+
+      if (matchingKey) {
+        const latestMessages = chatHistory[matchingKey] || []
         setSelectedUserChat(latestMessages)
-        console.log(`Dialog opened for ${selectedUserName}, loaded ${latestMessages.length} messages`)
+        console.log(`Dialog updated for ${selectedUserName}, loaded ${latestMessages.length} messages`)
       }
     }
-  }, [isChatDialogOpen, selectedUserName, chatHistory, users])
+  }, [chatHistory, isChatDialogOpen, selectedUserPhone, selectedUserName])
 
   return (
     <Card>
@@ -419,6 +527,11 @@ export function UserManagement() {
                   </>
                 )}
               </Badge>
+              {lastMessageTime && (
+                <Badge variant="outline" className="text-xs">
+                  Last: {lastMessageTime}
+                </Badge>
+              )}
             </CardTitle>
             <CardDescription>
               Manage WhatsApp bot users and their status. Chat replies update in real-time via Server-Sent Events.
@@ -636,13 +749,21 @@ export function UserManagement() {
                             variant="outline"
                             size="sm"
                             onClick={() => openChatDialog(user)}
-                            className="flex items-center gap-2"
+                            className="flex items-center gap-2 relative"
                           >
                             <MessageSquare className="h-4 w-4" />
                             <span className="font-medium">{incomingCount}</span>
                             {incomingCount === 1 ? "reply" : "replies"}
                             {/* Real-time indicator */}
                             {isSSEConnected && <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>}
+                            {/* Unread indicator - small red dot */}
+                            {getUnreadMessagesCount(user.no_hp) > 0 && (
+                              <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center">
+                                <span className="text-white text-xs font-bold leading-none">
+                                  {getUnreadMessagesCount(user.no_hp) > 9 ? "9+" : getUnreadMessagesCount(user.no_hp)}
+                                </span>
+                              </div>
+                            )}
                           </Button>
                         ) : (
                           <span className="text-muted-foreground text-sm">No replies</span>
@@ -749,29 +870,31 @@ export function UserManagement() {
                 </Badge>
               </DialogTitle>
               <DialogDescription>
-                All incoming messages from this user{" "}
-                {isSSEConnected ? "(updates in real-time)" : "(updates when reconnected)"}
+                All messages from this user {isSSEConnected ? "(updates in real-time)" : "(updates when reconnected)"}
               </DialogDescription>
             </DialogHeader>
             <div className="max-h-96 overflow-y-auto space-y-3">
               {selectedUserChat.length === 0 ? (
                 <p className="text-muted-foreground text-center py-8">No messages found</p>
               ) : (
-                selectedUserChat
-                  .filter((msg) => msg.isIncoming) // Only show incoming messages
-                  .map((message, index) => (
-                    <div key={index} className="border rounded-lg p-3 bg-gray-50">
-                      <div className="flex justify-between items-start mb-2">
-                        <Badge variant="secondary" className="text-xs">
-                          Message {index + 1}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(message.timestamp).toLocaleString()}
-                        </span>
-                      </div>
-                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                selectedUserChat.map((message, index) => (
+                  <div
+                    key={index}
+                    className={`border rounded-lg p-3 ${
+                      message.isIncoming ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <Badge variant={message.isIncoming ? "default" : "secondary"} className="text-xs">
+                        {message.isIncoming ? "Incoming" : "Bot Reply"}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(message.timestamp).toLocaleString()}
+                      </span>
                     </div>
-                  ))
+                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  </div>
+                ))
               )}
             </div>
             <DialogFooter>
