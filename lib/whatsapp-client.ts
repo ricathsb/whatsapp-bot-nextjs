@@ -51,7 +51,6 @@ export class WhatsAppClient extends EventEmitter {
   }
 
   getUsers() {
-    console.log("dmwk")
     return this.userManager.getUsers()
   }
 
@@ -313,4 +312,80 @@ export class WhatsAppClient extends EventEmitter {
   private logStatus(): void {
     console.log("[WhatsAppClient] Status:", JSON.stringify(this.status, null, 2))
   }
+
+async sendBulkMessages(message: string): Promise<void> {
+  console.log("[sendBulkMessages] 📩 Starting bulk message send...")
+
+  if (!this.status.isReady || !this.client) {
+    console.warn("[sendBulkMessages] ❌ WhatsApp client not ready.")
+    return
+  }
+
+  if (this.isSendingMessages) {
+    console.warn("[sendBulkMessages] ⚠️ Bulk message already in progress, skipping.")
+    return
+  }
+
+  this.isSendingMessages = true
+
+  try {
+    const users = this.userManager.getUsers()
+
+    if (users.length === 0) {
+      console.warn("[sendBulkMessages] ⚠️ No users to send message to.")
+      return
+    }
+
+    console.log(`[sendBulkMessages] ✅ Sending to ${users.length} users...`)
+
+    let successCount = 0
+
+    for (const [i, user] of users.entries()) {
+      const phone = user.phone.replace(/\D/g, "") + "@c.us"
+      console.log(`[${i + 1}/${users.length}] ▶️ Sending to ${user.name} (${phone})`)
+
+      try {
+        await this.client.sendMessage(phone, message)
+        console.log(`  📤 Sent successfully.`)
+
+        this.messageHandler.addMessage(user.phone, {
+          from: phone,
+          content: message,
+          timestamp: new Date(),
+          isIncoming: false,
+        })
+
+        this.status.messagesSent++
+        successCount++
+      } catch (error) {
+        console.error(`  ❌ Failed to send to ${user.name} (${user.phone})`, error)
+      }
+
+      // Skip delay on last user
+      if (i < users.length - 1) {
+        const delayMs = this.randomDelay(5000, 10000)
+        console.log(`  ⏳ Waiting ${delayMs}ms before next...`)
+        console.time(`  ⏳ Actual delay for ${user.name}`)
+        await this.wait(delayMs)
+        console.timeEnd(`  ⏳ Actual delay for ${user.name}`)
+      }
+    }
+
+    console.log(`[sendBulkMessages] ✅ Done. Sent to ${successCount}/${users.length} users.`)
+
+  } finally {
+    this.isSendingMessages = false
+  }
+}
+
+private randomDelay(minMs: number, maxMs: number): number {
+  return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs
+}
+
+private wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+
+
 }
