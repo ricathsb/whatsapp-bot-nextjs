@@ -25,9 +25,11 @@ model nasabah {
   no_hp            String
   status           String
   status_langganan String
+  isActive         Boolean  @default(true)
   nik              String   @unique
   no_kpj           String   @unique
   updatedAt        DateTime
   userId           String
   users            User     @relation(fields: [userId], references: [id])
 }
+

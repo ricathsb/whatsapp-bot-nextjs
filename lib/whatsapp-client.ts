@@ -224,40 +224,37 @@ export class WhatsAppClient extends EventEmitter {
     })
   }
 
-  private async handleIncomingMessage(msg: Message) {
-    if (msg.fromMe) return
+private async handleIncomingMessage(msg: Message) {
+  if (msg.fromMe) return
 
-    try {
-      const phone = msg.from.split("@")[0]
-      const contacts = this.contactManager.getContacts()
-      const contact = contacts.find((c) => c.phone === phone) || { name: phone, phone }
+  try {
+    const phone = msg.from.split("@")[0]
+    const contacts = this.contactManager.getContacts()
+    const contact = contacts.find((c) => c.phone === phone) || { name: phone, phone }
 
-      const message: ChatMessage = {
-        from: msg.from,
-        content: msg.body,
-        timestamp: new Date(),
-        isIncoming: true,
-      }
-
-      this.messageHandler.addMessage(phone, message)
-      console.log(`[WhatsAppClient] \u{1F4AC} Message from ${contact.name} (${phone}): ${msg.body}`)
-
-      if (!this.userManager.isUserActive(phone)) {
-        console.log(`[WhatsAppClient] \u{1F6AB} User ${contact.name} is INACTIVE - not responding`)
-        this.emit("message", { contact, message, responded: false, reason: "User inactive" })
-        return
-      }
-
-      this.emit("message", { contact, message, responded: true })
-
-      const replyContent = await this.messageHandler.generateReply(msg.body, contact.name)
-      if (replyContent) {
-        await this.sendReply(msg.from, replyContent)
-      }
-    } catch (error) {
-      console.error("[WhatsAppClient] Error processing message:", error)
+    const message: ChatMessage = {
+      from: msg.from,
+      content: msg.body,
+      timestamp: new Date(),
+      isIncoming: true,
     }
+
+    this.messageHandler.addMessage(phone, message)
+    console.log(`[WhatsAppClient] 💬 Message from ${contact.name} (${phone}): ${msg.body}`)
+
+    // Emit tetap dilakukan
+    this.emit("message", { contact, message, responded: true })
+
+    // Generate dan kirim balasan
+    const replyContent = await this.messageHandler.generateReply(msg.body, contact.name)
+    if (replyContent) {
+      await this.sendReply(msg.from, replyContent)
+    }
+  } catch (error) {
+    console.error("[WhatsAppClient] Error processing message:", error)
   }
+}
+
 
   async sendReply(to: string, message: string): Promise<boolean> {
     if (!this.status.isReady || !this.client) return false
