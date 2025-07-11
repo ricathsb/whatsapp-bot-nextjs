@@ -1,29 +1,33 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server"
-import { PrismaClient } from "@prisma/client"
+import { prisma } from "@/lib/prisma"
 
-const prisma = new PrismaClient()
-
-// PUT - Update user
-export async function PUT(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
     const body = await request.json()
-    const { name, phone } = body
 
-    if (!name && !phone) {
-      return NextResponse.json(
-        { success: false, error: "No data provided" },
-        { status: 400 }
-      )
+    // Handle both old and new field names for backward compatibility
+    const { nama, no_hp, nik, no_kpj, name, phone } = body
+
+    // Use new field names (nama, no_hp) or fall back to old ones (name, phone)
+    const nameValue = nama || name
+    const phoneValue = no_hp || phone
+
+    if (!nameValue && !phoneValue && !nik && !no_kpj) {
+      return NextResponse.json({ success: false, error: "No data provided" }, { status: 400 })
     }
 
-    const updates: { nama?: string; no_hp?: string } = {}
-    if (name) updates.nama = name
-    if (phone) updates.no_hp = phone.replace(/\D/g, "")
+    const updates: {
+      nama?: string
+      no_hp?: string
+      nik?: string
+      no_kpj?: string
+    } = {}
+
+    if (nameValue) updates.nama = nameValue.trim()
+    if (phoneValue) updates.no_hp = phoneValue.replace(/\D/g, "")
+    if (nik !== undefined) updates.nik = nik.trim()
+    if (no_kpj !== undefined) updates.no_kpj = no_kpj.trim()
 
     // 💾 Update database
     const updatedNasabah = await prisma.nasabah.update({
@@ -38,71 +42,29 @@ export async function PUT(
     return NextResponse.json({
       success: true,
       data: {
-        id,
-        name: updatedNasabah.nama,
-        phone: updatedNasabah.no_hp,
+        id: updatedNasabah.id,
+        nama: updatedNasabah.nama,
+        no_hp: updatedNasabah.no_hp,
+        nik: updatedNasabah.nik,
+        no_kpj: updatedNasabah.no_kpj,
+        isActive: updatedNasabah.isActive,
+        status_langganan: updatedNasabah.status_langganan,
+        updatedAt: updatedNasabah.updatedAt,
+        userId: updatedNasabah.userId,
         reloaded,
       },
     })
   } catch (error: any) {
     if (error.code === "P2025") {
-      return NextResponse.json(
-        { success: false, error: "User not found in database" },
-        { status: 404 }
-      )
+      return NextResponse.json({ success: false, error: "User not found in database" }, { status: 404 })
     }
-
     console.error("Failed to update user:", error)
     return NextResponse.json(
       {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
-    )
-  }
-}
-
-// DELETE - Delete user
-export async function DELETE(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params
-
-    // 💾 Hapus dari database
-    const dbDeleted = await prisma.nasabah.delete({
-      where: { id },
-    })
-
-    // 🔁 Reload in-memory users
-    const service = global.whatsappService
-    const reloaded = await service?.getUserManager()?.loadUsersFromDatabase?.()
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        deletedFromDB: true,
-        reloaded,
-        deletedUser: dbDeleted,
-      },
-    })
-  } catch (error: any) {
-    if (error.code === "P2025") {
-      return NextResponse.json(
-        { success: false, error: "User not found in database" },
-        { status: 404 }
-      )
-    }
-
-    console.error("Failed to delete user:", error)
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }

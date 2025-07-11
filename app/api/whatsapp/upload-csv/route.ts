@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { NextRequest, NextResponse } from "next/server"
 import { PrismaClient } from "@prisma/client"
 import { parse } from "csv-parse/sync"
@@ -22,7 +23,6 @@ export async function POST(request: NextRequest) {
     let decoded
     try {
       decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
       return NextResponse.json({ success: false, error: "Invalid token" }, { status: 401 })
     }
@@ -44,32 +44,37 @@ export async function POST(request: NextRequest) {
 
     let inserted = 0
     for (const record of records) {
-      const { nama, no_hp, status, status_langganan, nik, no_kpj } = record
+      const { nama, no_hp, nik, no_kpj } = record
       if (!nik || !no_kpj) continue
 
-      await prisma.nasabah.upsert({
-        where: { nik },
-        update: {
-          nama,
-          no_hp,
-          status,
-          status_langganan,
-          no_kpj,
-          userId,
-          updatedAt: new Date(),
-        },
-        create: {
-          id: crypto.randomUUID(),
-          nama,
-          no_hp,
-          status,
-          status_langganan,
-          nik,
-          no_kpj,
-          userId,
-          updatedAt: new Date(),
-        },
-      })
+          await prisma.nasabah.upsert({
+      where: { nik },
+      update: {
+        nama,
+        no_hp,
+        status: "verified",
+        status_langganan: "invalid",
+        no_kpj,
+        userId,
+        isActive: true,
+        verifiedAt: new Date(),     // ← tambahkan ini
+        updatedAt: new Date(),
+      },
+      create: {
+        id: crypto.randomUUID(),
+        nama,
+        no_hp,
+        status: "verified",
+        status_langganan: "invalid",
+        nik,
+        no_kpj,
+        userId,
+        isActive: true,
+        verifiedAt: new Date(),     // ← tambahkan ini
+        updatedAt: new Date(),
+      },
+    })
+
 
       inserted++
     }
