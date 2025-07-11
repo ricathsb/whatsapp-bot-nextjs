@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable react/no-unescaped-entities */
 "use client"
 
 import { useState, useEffect, useRef } from "react"
@@ -34,12 +33,11 @@ import {
   WifiOff,
 } from "lucide-react"
 
-// Updated interface to match your JSON structure
 interface UserInterface {
   id: string
   nama: string
   no_hp: string
-  status: "aktif" | "tidak aktif"
+  isActive: boolean
   status_langganan: "berlangganan" | "tidak"
   nik: string
   no_kpj: string
@@ -54,26 +52,17 @@ interface ChatMessage {
   isIncoming: boolean
 }
 
-// Helper function to normalize phone numbers for comparison
 const normalizePhone = (phone: string): string => {
-  // Remove all non-digits
   const digits = phone.replace(/\D/g, "")
-
-  // If starts with 62, keep as is
   if (digits.startsWith("62")) {
     return digits
   }
-
-  // If starts with 0, replace with 62
   if (digits.startsWith("0")) {
     return "62" + digits.substring(1)
   }
-
-  // If doesn't start with 62 or 0, assume it needs 62 prefix
   return "62" + digits
 }
 
-// Helper function to find user by phone number (handles different formats)
 const findUserByPhone = (users: UserInterface[], phone: string): UserInterface | undefined => {
   const normalizedPhone = normalizePhone(phone)
   return users.find((user) => {
@@ -95,27 +84,23 @@ export function UserManagement() {
     no_kpj: "",
   })
 
-  // Chat history states
   const [chatHistory, setChatHistory] = useState<{ [phone: string]: ChatMessage[] }>({})
   const [selectedUserChat, setSelectedUserChat] = useState<ChatMessage[]>([])
   const [isChatDialogOpen, setIsChatDialogOpen] = useState(false)
   const [selectedUserName, setSelectedUserName] = useState("")
   const [selectedUserPhone, setSelectedUserPhone] = useState("")
 
-  // SSE connection states
   const [isSSEConnected, setIsSSEConnected] = useState(false)
   const [sseError, setSSEError] = useState<string | null>(null)
   const [lastMessageTime, setLastMessageTime] = useState<string>("")
   const eventSourceRef = useRef<EventSource | null>(null)
 
-  // Add new state for tracking read messages after the existing states
   const [readMessages, setReadMessages] = useState<{ [phone: string]: number }>({})
 
   useEffect(() => {
     fetchUsers()
     connectToSSE()
 
-    // Listen for refresh events from CSV upload
     const handleRefresh = () => {
       console.log("Refreshing users due to CSV upload...")
       setTimeout(() => {
@@ -123,7 +108,6 @@ export function UserManagement() {
       }, 1000)
     }
 
-    // Listen for bulk user updates from bot start/stop
     const handleBulkUpdate = () => {
       console.log("Refreshing users due to bulk status change...")
       fetchUsers()
@@ -133,7 +117,6 @@ export function UserManagement() {
     window.addEventListener("bulkUserUpdate", handleBulkUpdate)
 
     return () => {
-      // Cleanup SSE connection
       if (eventSourceRef.current) {
         eventSourceRef.current.close()
       }
@@ -142,10 +125,8 @@ export function UserManagement() {
     }
   }, [])
 
-  // SSE Connection Function
   const connectToSSE = () => {
     try {
-      // Close existing connection if any
       if (eventSourceRef.current) {
         eventSourceRef.current.close()
       }
@@ -165,7 +146,6 @@ export function UserManagement() {
           const data = JSON.parse(event.data)
           console.log("SSE data received:", data)
 
-          // Handle initial chat history
           if (data.type === "chat-history") {
             const newChatHistory = data.chatHistory
             setChatHistory((prevHistory) => {
@@ -176,7 +156,6 @@ export function UserManagement() {
               return newChatHistory
             })
 
-            // Update dialog if open
             if (isChatDialogOpen && selectedUserPhone) {
               const normalizedSelectedPhone = normalizePhone(selectedUserPhone)
               const matchingKey = Object.keys(newChatHistory).find(
@@ -189,8 +168,6 @@ export function UserManagement() {
               }
             }
           }
-          // Handle real-time chat updates
-          // Replace the existing chat-update handling with:
           else if (data.type === "chat-update") {
             const { phone, message, contact } = data
             const normalizedPhone = normalizePhone(phone)
@@ -198,11 +175,8 @@ export function UserManagement() {
             console.log(`📨 New message from ${contact?.name || phone}:`, message.content)
             setLastMessageTime(new Date().toLocaleTimeString())
 
-            // Update chat history
             setChatHistory((prev) => {
-              // Find existing key that matches this phone number
               const existingKey = Object.keys(prev).find((key) => normalizePhone(key) === normalizedPhone)
-
               const keyToUse = existingKey || phone
               const prevMessages = prev[keyToUse] || []
               const updatedMessages = [...prevMessages, message]
@@ -211,7 +185,6 @@ export function UserManagement() {
               return { ...prev, [keyToUse]: updatedMessages }
             })
 
-            // Update dialog if open and matches current user
             if (isChatDialogOpen && selectedUserPhone) {
               const normalizedSelectedPhone = normalizePhone(selectedUserPhone)
               if (normalizedPhone === normalizedSelectedPhone) {
@@ -219,7 +192,6 @@ export function UserManagement() {
                   const updated = [...prev, message]
                   console.log(`📨 Realtime update: new message shown in chat dialog for ${selectedUserName}`)
 
-                  // If dialog is open and it's an incoming message, mark it as read immediately
                   if (message.isIncoming) {
                     setReadMessages((prevRead) => ({
                       ...prevRead,
@@ -232,7 +204,6 @@ export function UserManagement() {
               }
             }
 
-            // Force a re-render to update message counts
             setUsers((prevUsers) => [...prevUsers])
           } else {
             console.warn("Received unknown SSE data type:", data.type)
@@ -247,7 +218,6 @@ export function UserManagement() {
         setIsSSEConnected(false)
         setSSEError("Connection lost. Attempting to reconnect...")
 
-        // Attempt to reconnect after 5 seconds
         setTimeout(() => {
           if (eventSourceRef.current?.readyState === EventSource.CLOSED) {
             console.log("Attempting to reconnect SSE...")
@@ -261,7 +231,6 @@ export function UserManagement() {
     }
   }
 
-  // Manual reconnect function
   const reconnectSSE = () => {
     setSSEError(null)
     connectToSSE()
@@ -288,11 +257,8 @@ export function UserManagement() {
     }
   }
 
-  // Update the openChatDialog function to mark messages as read
   const openChatDialog = (user: UserInterface) => {
     const normalizedUserPhone = normalizePhone(user.no_hp)
-
-    // Find matching chat history key
     const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedUserPhone)
 
     const userMessages = matchingKey ? chatHistory[matchingKey] || [] : []
@@ -301,7 +267,6 @@ export function UserManagement() {
     setSelectedUserPhone(user.no_hp)
     setIsChatDialogOpen(true)
 
-    // Mark all incoming messages as read
     const incomingCount = userMessages.filter((msg) => msg.isIncoming).length
     setReadMessages((prev) => ({
       ...prev,
@@ -313,11 +278,8 @@ export function UserManagement() {
     )
   }
 
-  // Add new function to get unread messages count
   const getUnreadMessagesCount = (phone: string): number => {
     const normalizedPhone = normalizePhone(phone)
-
-    // Find matching key in chat history
     const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedPhone)
 
     if (!matchingKey) return 0
@@ -331,8 +293,6 @@ export function UserManagement() {
 
   const getIncomingMessagesCount = (phone: string): number => {
     const normalizedPhone = normalizePhone(phone)
-
-    // Find matching key in chat history
     const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedPhone)
 
     if (!matchingKey) return 0
@@ -345,7 +305,7 @@ export function UserManagement() {
     if (!confirm("Are you sure you want to activate ALL users?")) return
     setLoading(true)
     try {
-      const inactiveUsers = users.filter((u) => u.status === "tidak aktif")
+      const inactiveUsers = users.filter((u) => !u.isActive)
       for (const user of inactiveUsers) {
         await fetch(`/api/users/${user.id}/toggle`, {
           method: "POST",
@@ -364,7 +324,7 @@ export function UserManagement() {
     if (!confirm("Are you sure you want to deactivate ALL users?")) return
     setLoading(true)
     try {
-      const activeUsers = users.filter((u) => u.status === "aktif")
+      const activeUsers = users.filter((u) => u.isActive)
       for (const user of activeUsers) {
         await fetch(`/api/users/${user.id}/toggle`, {
           method: "POST",
@@ -461,7 +421,7 @@ export function UserManagement() {
       })
       const data = await response.json()
       if (data.success) {
-        setUsers(users.map((u) => (u.id === id ? data.data : u)))
+        setUsers(users.map((u) => (u.id === id ? { ...u, isActive: data.data.isActive } : u)))
         setError(null)
       } else {
         setError(data.error)
@@ -488,10 +448,9 @@ export function UserManagement() {
     setFormData({ nama: "", no_hp: "", nik: "", no_kpj: "" })
   }
 
-  const activeUsersCount = users.filter((u) => u.status === "aktif").length
+  const activeUsersCount = users.filter((u) => u.isActive).length
   const inactiveUsersCount = users.length - activeUsersCount
 
-  // Update dialog when chat history changes
   useEffect(() => {
     if (isChatDialogOpen && selectedUserPhone) {
       const normalizedSelectedPhone = normalizePhone(selectedUserPhone)
@@ -513,7 +472,6 @@ export function UserManagement() {
             <CardTitle className="flex items-center gap-2">
               <User className="h-5 w-5" />
               User Management
-              {/* SSE Connection Status */}
               <Badge variant={isSSEConnected ? "default" : "destructive"} className="text-xs">
                 {isSSEConnected ? (
                   <>
@@ -538,7 +496,6 @@ export function UserManagement() {
             </CardDescription>
           </div>
           <div className="flex gap-2">
-            {/* Reconnect SSE Button */}
             {!isSSEConnected && (
               <Button variant="outline" onClick={reconnectSSE} size="sm">
                 <Wifi className="h-4 w-4 mr-2" />
@@ -621,7 +578,6 @@ export function UserManagement() {
           </Alert>
         )}
 
-        {/* SSE Connection Error */}
         {sseError && (
           <Alert variant="destructive" className="mb-4">
             <WifiOff className="h-4 w-4" />
@@ -634,7 +590,6 @@ export function UserManagement() {
           </Alert>
         )}
 
-        {/* Real-time Connection Notice */}
         <Alert className="mb-4">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
@@ -645,7 +600,6 @@ export function UserManagement() {
           </AlertDescription>
         </Alert>
 
-        {/* Bulk Actions */}
         {users.length > 0 && (
           <div className="flex gap-2 mb-4">
             <Button
@@ -663,7 +617,6 @@ export function UserManagement() {
           </div>
         )}
 
-        {/* User Statistics */}
         {users.length > 0 && (
           <div className="grid grid-cols-3 gap-4 mb-6">
             <Card>
@@ -725,12 +678,12 @@ export function UserManagement() {
                       <TableCell>
                         <div className="flex items-center space-x-2">
                           <Switch
-                            checked={user.status === "aktif"}
+                            checked={user.isActive}
                             onCheckedChange={() => handleToggleStatus(user.id)}
                             disabled={loading}
                           />
-                          <Badge variant={user.status === "aktif" ? "default" : "secondary"}>
-                            {user.status === "aktif" ? "Active" : "Inactive"}
+                          <Badge variant={user.isActive ? "default" : "secondary"}>
+                            {user.isActive ? "Active" : "Inactive"}
                           </Badge>
                         </div>
                       </TableCell>
@@ -742,7 +695,6 @@ export function UserManagement() {
                       <TableCell>{user.nik}</TableCell>
                       <TableCell>{user.no_kpj}</TableCell>
                       <TableCell>{new Date(user.updatedAt).toLocaleDateString()}</TableCell>
-                      {/* Chat Replies Column with real-time updates */}
                       <TableCell>
                         {incomingCount > 0 ? (
                           <Button
@@ -754,9 +706,7 @@ export function UserManagement() {
                             <MessageSquare className="h-4 w-4" />
                             <span className="font-medium">{incomingCount}</span>
                             {incomingCount === 1 ? "reply" : "replies"}
-                            {/* Real-time indicator */}
                             {isSSEConnected && <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>}
-                            {/* Unread indicator - small red dot */}
                             {getUnreadMessagesCount(user.no_hp) > 0 && (
                               <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center">
                                 <span className="text-white text-xs font-bold leading-none">
@@ -792,7 +742,6 @@ export function UserManagement() {
           </Table>
         </div>
 
-        {/* Edit Dialog */}
         <Dialog open={!!editingUser} onOpenChange={closeEditDialog}>
           <DialogContent>
             <DialogHeader>
@@ -848,7 +797,6 @@ export function UserManagement() {
           </DialogContent>
         </Dialog>
 
-        {/* Chat History Dialog with real-time updates */}
         <Dialog open={isChatDialogOpen} onOpenChange={setIsChatDialogOpen}>
           <DialogContent className="max-w-2xl max-h-[80vh]">
             <DialogHeader>

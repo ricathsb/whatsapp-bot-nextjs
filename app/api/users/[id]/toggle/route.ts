@@ -1,35 +1,62 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server"
-import { WhatsAppService } from "@/lib/whatsapp-service"
+import { PrismaClient } from "@prisma/client"
+
+const prisma = new PrismaClient()
 
 // POST - Toggle user active status
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-    try {
-        const { id } = await params
-        const service = WhatsAppService.getInstance()
-        const user = service.toggleUserStatus(id)
+export async function POST(
+  request: Request,
+  { params }: { params: { id: string } } // ← Perbaikan: tidak perlu Promise
+) {
+  try {
+    const { id } = params
 
-        if (!user) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    error: "User not found",
-                },
-                { status: 404 },
-            )
-        }
+    // 🔍 Cek apakah nasabah ada
+    const existing = await prisma.nasabah.findUnique({
+      where: { id },
+    })
 
-        return NextResponse.json({
-            success: true,
-            data: user,
-        })
-    } catch (error) {
-        console.error("Failed to toggle user status:", error)
-        return NextResponse.json(
-            {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
-            },
-            { status: 500 },
-        )
+    if (!existing) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "User not found in database",
+        },
+        { status: 404 }
+      )
     }
+
+    const newStatus = !existing.isActive
+
+    // 💾 Update kolom isActive
+    const updated = await prisma.nasabah.update({
+      where: { id },
+      data: { isActive: newStatus },
+    })
+
+    // 🔁 Reload cache (in-memory user)
+    const service = global.whatsappService
+    const reloaded = await service?.getUserManager()?.loadUsersFromDatabase?.()
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        id,
+        name: updated.nama,
+        phone: updated.no_hp,
+        isActive: updated.isActive,
+        reloaded,
+      },
+    })
+  } catch (error: any) {
+    console.error("Failed to toggle isActive:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 }
+    )
+  }
 }
