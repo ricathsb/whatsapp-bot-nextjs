@@ -1,10 +1,4 @@
 // ===== TYPES & INTERFACES =====
-export interface Contact {
-    name: string
-    phone: string
-    isActive: boolean  
-
-}
 
 export interface ChatMessage {
     from: string

@@ -7,27 +7,26 @@ const prisma = new PrismaClient()
 export class UserManager {
   private users: User[] = []
 
-  addUser(name: string, phone: string, isActive = true): User {
-    const normalizedPhone = PhoneNormalizer.normalize(phone)
+  addUser(name: string, phone: string, isActive = true, id?: string): User {
+  const normalizedPhone = PhoneNormalizer.normalize(phone)
 
-    const existingUserByPhone = this.users.find((u) => u.phone === normalizedPhone)
-    if (existingUserByPhone) {
-      console.log(`[UserManager] User with phone ${normalizedPhone} already exists, skipping ${name}`)
-      return existingUserByPhone
-    }
-
-    const user: User = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-      name,
-      phone: normalizedPhone,
-      createdAt: new Date(),
-      isActive, // ⬅️ ditambahkan
-    }
-
-    this.users.push(user)
-    console.log(`[UserManager] ✅ Added user: ${name} (${normalizedPhone})`)
-    return user
+  const existingUserByPhone = this.users.find((u) => u.phone === normalizedPhone)
+  if (existingUserByPhone) {
+    return existingUserByPhone
   }
+
+  const user: User = {
+    id: id ?? (Date.now().toString() + Math.random().toString(36).substr(2, 9)),
+    name,
+    phone: normalizedPhone,
+    createdAt: new Date(),
+    isActive,
+  }
+
+  this.users.push(user)
+  return user
+}
+
 
   getUsers(): User[] {
     return [...this.users]
@@ -42,9 +41,9 @@ export class UserManager {
   }
 
   deleteUser(id: string): boolean {
+    console.log("deleting")
     const userIndex = this.users.findIndex((u) => u.id === id)
     if (userIndex === -1) return false
-
     this.users.splice(userIndex, 1)
     return true
   }
@@ -59,6 +58,7 @@ export class UserManager {
 
     const nasabahList = await prisma.nasabah.findMany({
       select: {
+        id: true,
         nama: true,
         no_hp: true,
         isActive: true,

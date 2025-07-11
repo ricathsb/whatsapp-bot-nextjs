@@ -86,6 +86,10 @@ export class WhatsAppClient extends EventEmitter {
     return this.userManager.loadUsersFromDatabase()
   }
 
+  getUserManager() {
+  return this.userManager
+}
+
   async loadContacts(): Promise<number> {
     const count = this.userManager.getUsers().length
     this.status.contactsCount = count

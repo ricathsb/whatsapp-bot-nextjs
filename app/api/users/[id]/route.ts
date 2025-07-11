@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server"
-import { WhatsAppService } from "@/lib/whatsapp-service"
 import { PrismaClient } from "@prisma/client"
 
 const prisma = new PrismaClient()
@@ -31,22 +30,27 @@ export async function PUT(
       data: updates,
     })
 
-    // 🧠 Update in-memory user
-    const service = WhatsAppService.getInstance()
-    const updatedUser = service.updateUser(id, {
-      name: updatedNasabah.nama,
-      phone: updatedNasabah.no_hp,
-    })
+    // 🔁 Reload in-memory users
+    const service = global.whatsappService
+    const reloaded = await service?.getUserManager()?.loadUsersFromDatabase?.()
 
-    if (!updatedUser) {
+    return NextResponse.json({
+      success: true,
+      data: {
+        id,
+        name: updatedNasabah.nama,
+        phone: updatedNasabah.no_hp,
+        reloaded,
+      },
+    })
+  } catch (error: any) {
+    if (error.code === "P2025") {
       return NextResponse.json(
-        { success: false, error: "User not found in memory" },
+        { success: false, error: "User not found in database" },
         { status: 404 }
       )
     }
 
-    return NextResponse.json({ success: true, data: updatedUser })
-  } catch (error) {
     console.error("Failed to update user:", error)
     return NextResponse.json(
       {
@@ -66,22 +70,31 @@ export async function DELETE(
   try {
     const { id } = await params
 
-    // 💾 Delete from database
-    await prisma.nasabah.delete({ where: { id } })
+    // 💾 Hapus dari database
+    const dbDeleted = await prisma.nasabah.delete({
+      where: { id },
+    })
 
-    // 🧠 Delete from memory
-    const service = WhatsAppService.getInstance()
-    const success = service.deleteUser(id)
+    // 🔁 Reload in-memory users
+    const service = global.whatsappService
+    const reloaded = await service?.getUserManager()?.loadUsersFromDatabase?.()
 
-    if (!success) {
+    return NextResponse.json({
+      success: true,
+      data: {
+        deletedFromDB: true,
+        reloaded,
+        deletedUser: dbDeleted,
+      },
+    })
+  } catch (error: any) {
+    if (error.code === "P2025") {
       return NextResponse.json(
-        { success: false, error: "User not found in memory" },
+        { success: false, error: "User not found in database" },
         { status: 404 }
       )
     }
 
-    return NextResponse.json({ success: true })
-  } catch (error) {
     console.error("Failed to delete user:", error)
     return NextResponse.json(
       {
