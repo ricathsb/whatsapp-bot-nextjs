@@ -23,8 +23,8 @@ model nasabah {
   id               String   @id @default(cuid())
   nama             String
   no_hp            String
-  status           String
-  status_langganan String
+  status           String   
+  status_langganan String   @default("invalid")
   isActive         Boolean  @default(true)
   nik              String   @unique
   no_kpj           String   @unique

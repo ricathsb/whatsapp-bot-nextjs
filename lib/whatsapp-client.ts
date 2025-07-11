@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// ===== MAIN WHATSAPP CLIENT (DATABASE INTEGRATED) =====
 import qrcode from "qrcode"
 import { Client, type Message } from "whatsapp-web.js"
 import { existsSync, mkdirSync } from "fs"
@@ -7,13 +6,11 @@ import { EventEmitter } from "events"
 
 import type { BotStatus, ChatMessage } from "./types/whatsapp"
 import { UserManager } from "./user-manager"
-import { ContactManager } from "./contact-manager"
 import { MessageHandler } from "./message-handler"
 
 export class WhatsAppClient extends EventEmitter {
   private client: Client | null = null
   private userManager: UserManager
-  private contactManager: ContactManager
   private messageHandler: MessageHandler
   private isSendingMessages = false
   private reconnectAttempts = 0
@@ -30,7 +27,6 @@ export class WhatsAppClient extends EventEmitter {
   constructor() {
     super()
     this.userManager = new UserManager()
-    this.contactManager = new ContactManager()
     this.messageHandler = new MessageHandler()
 
     process.on("exit", async () => {
@@ -90,16 +86,15 @@ export class WhatsAppClient extends EventEmitter {
     return this.userManager.loadUsersFromDatabase()
   }
 
-  // Contact management
   async loadContacts(): Promise<number> {
-    const count = await this.contactManager.loadContactsFromDatabase()
+    const count = this.userManager.getUsers().length
     this.status.contactsCount = count
     this.logStatus()
     return count
   }
 
   getContacts() {
-    return this.contactManager.getContacts()
+    return this.getUsers()
   }
 
   getChatHistory(phone: string) {
@@ -117,13 +112,13 @@ export class WhatsAppClient extends EventEmitter {
     }
 
     try {
-      console.log("[WhatsAppClient] \u{1F680} Starting WhatsApp Bot Service...")
+      console.log("[WhatsAppClient] 🚀 Starting WhatsApp Bot Service...")
 
       const activatedCount = await this.loadUsersFromDatabase()
-      console.log(`[WhatsAppClient] \u{2705} Bot started - ${activatedCount} users loaded and activated from database`)
+      console.log(`[WhatsAppClient] ✅ Loaded ${activatedCount} users from database`)
 
       const contactCount = await this.loadContacts()
-      console.log(`[WhatsAppClient] \u{2705} Loaded ${contactCount} contacts from database`)
+      console.log(`[WhatsAppClient] ✅ Loaded ${contactCount} contacts`)
 
       const userDataDir = "./chrome-profile"
       if (!existsSync(userDataDir)) mkdirSync(userDataDir)
@@ -160,10 +155,10 @@ export class WhatsAppClient extends EventEmitter {
   }
 
   async stop(): Promise<void> {
-    console.log("[WhatsAppClient] \u{1F6D1} Stopping WhatsApp Bot Service...")
+    console.log("[WhatsAppClient] 🛑 Stopping WhatsApp Bot Service...")
 
     const deactivatedCount = this.userManager.deactivateAllUsers()
-    console.log(`[WhatsAppClient] \u{2705} Bot stopped - ${deactivatedCount} users deactivated`)
+    console.log(`[WhatsAppClient] ✅ ${deactivatedCount} users deactivated`)
 
     this.emit("users_bulk_updated", { action: "deactivated", count: deactivatedCount })
     await this.cleanup()
@@ -173,7 +168,7 @@ export class WhatsAppClient extends EventEmitter {
     if (!this.client) return
 
     this.client.on("qr", async (qr: string) => {
-      console.log("[WhatsAppClient] \u{1F7E1} QR Code received")
+      console.log("[WhatsAppClient] 🟡 QR Code received")
       try {
         this.status.qrCode = await qrcode.toDataURL(qr)
         this.emit("qr", this.status.qrCode)
@@ -184,13 +179,13 @@ export class WhatsAppClient extends EventEmitter {
     })
 
     this.client.on("authenticated", () => {
-      console.log("[WhatsAppClient] \u{2705} Authenticated")
+      console.log("[WhatsAppClient] ✅ Authenticated")
       this.reconnectAttempts = 0
       this.emit("authenticated")
     })
 
     this.client.on("ready", () => {
-      console.log("[WhatsAppClient] \u{2705} Client ready")
+      console.log("[WhatsAppClient] ✅ Client ready")
       this.status.isReady = true
       this.status.qrCode = undefined
       this.status.error = undefined
@@ -199,12 +194,12 @@ export class WhatsAppClient extends EventEmitter {
     })
 
     this.client.on("disconnected", async (reason: string) => {
-      console.log(`[WhatsAppClient] \u{274C} Disconnected: ${reason}`)
+      console.log(`[WhatsAppClient] ❌ Disconnected: ${reason}`)
       this.emit("disconnected", reason)
 
       if (reason !== "LOGOUT" && this.reconnectAttempts < this.maxReconnectAttempts) {
         this.reconnectAttempts++
-        console.log(`[WhatsAppClient] \u{1F501} Attempting reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
+        console.log(`[WhatsAppClient] 🔁 Reconnecting (${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
         await this.delay(this.reconnectDelay)
         await this.cleanRestart()
       } else {
@@ -213,7 +208,7 @@ export class WhatsAppClient extends EventEmitter {
     })
 
     this.client.on("auth_failure", (msg) => {
-      console.error("[WhatsAppClient] \u{274C} Authentication failure:", msg)
+      console.error("[WhatsAppClient] ❌ Authentication failure:", msg)
       this.status.error = "Authentication failed"
       this.emit("auth_failure", msg)
       this.cleanup()
@@ -229,10 +224,14 @@ private async handleIncomingMessage(msg: Message) {
 
   try {
     const phone = msg.from.split("@")[0]
-    const contacts = this.contactManager.getContacts()
+    const users = this.userManager.getUsers()
+    const contact = users.find((u) => u.phone === phone)
 
-    // Ambil contact lengkap (termasuk isActive)
-    const contact = contacts.find((c) => c.phone === phone) || { name: phone, phone, isActive: true }
+    // ❌ Abaikan kalau tidak ditemukan di kontak
+    if (!contact) {
+      console.log(`[WhatsAppClient] 🚫 Message from unknown number: ${phone} - Ignored`)
+      return
+    }
 
     const message: ChatMessage = {
       from: msg.from,
@@ -241,16 +240,10 @@ private async handleIncomingMessage(msg: Message) {
       isIncoming: true,
     }
 
-    // Simpan pesan ke memori/database
     this.messageHandler.addMessage(phone, message)
     console.log(`[WhatsAppClient] 💬 Message from ${contact.name} (${phone}): ${msg.body}`)
 
-    // Emit pesan masuk ke UI (frontend)
-    this.emit("chat-update", {
-      contact,
-      message,
-      phone,
-    })
+    this.emit("chat-update", { contact, message, phone })
 
     // ❌ Jangan balas kalau isActive === false
     if (!contact.isActive) {
@@ -258,12 +251,10 @@ private async handleIncomingMessage(msg: Message) {
       return
     }
 
-    // 🔁 Generate dan kirim balasan otomatis (jika ada)
     const replyContent = await this.messageHandler.generateReply(msg.body, contact.name)
     if (replyContent) {
       await this.sendReply(msg.from, replyContent)
 
-      // Simpan dan emit balasan bot ke frontend
       const botMessage: ChatMessage = {
         from: msg.to,
         content: replyContent,
@@ -284,8 +275,6 @@ private async handleIncomingMessage(msg: Message) {
 }
 
 
-
-
   async sendReply(to: string, message: string): Promise<boolean> {
     if (!this.status.isReady || !this.client) return false
 
@@ -300,12 +289,11 @@ private async handleIncomingMessage(msg: Message) {
         isIncoming: false,
       })
 
-      console.log(`[WhatsAppClient] \u{1F4E4} Reply sent to ${phone}`)
+      console.log(`[WhatsAppClient] 📤 Reply sent to ${phone}`)
       this.emit("reply_sent", { to, message })
       return true
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
-      console.error(`[WhatsAppClient] Failed to send reply to ${to}:", error)`)
+      console.error(`[WhatsAppClient] Failed to send reply to ${to}:`, error)
       return false
     }
   }
@@ -340,79 +328,75 @@ private async handleIncomingMessage(msg: Message) {
     console.log("[WhatsAppClient] Status:", JSON.stringify(this.status, null, 2))
   }
 
-async sendBulkMessages(message: string): Promise<void> {
-  console.log("[sendBulkMessages] 📩 Starting bulk message send...")
+  async sendBulkMessages(message: string): Promise<void> {
+    console.log("[sendBulkMessages] 📩 Starting bulk message send...")
 
-  if (!this.status.isReady || !this.client) {
-    console.warn("[sendBulkMessages] ❌ WhatsApp client not ready.")
-    return
-  }
-
-  if (this.isSendingMessages) {
-    console.warn("[sendBulkMessages] ⚠️ Bulk message already in progress, skipping.")
-    return
-  }
-
-  this.isSendingMessages = true
-
-  try {
-    const users = this.userManager.getUsers()
-
-    if (users.length === 0) {
-      console.warn("[sendBulkMessages] ⚠️ No users to send message to.")
+    if (!this.status.isReady || !this.client) {
+      console.warn("[sendBulkMessages] ❌ WhatsApp client not ready.")
       return
     }
 
-    console.log(`[sendBulkMessages] ✅ Sending to ${users.length} users...`)
-
-    let successCount = 0
-
-    for (const [i, user] of users.entries()) {
-      const phone = user.phone.replace(/\D/g, "") + "@c.us"
-      console.log(`[${i + 1}/${users.length}] ▶️ Sending to ${user.name} (${phone})`)
-
-      try {
-        await this.client.sendMessage(phone, message)
-        console.log(`  📤 Sent successfully.`)
-
-        this.messageHandler.addMessage(user.phone, {
-          from: phone,
-          content: message,
-          timestamp: new Date(),
-          isIncoming: false,
-        })
-
-        this.status.messagesSent++
-        successCount++
-      } catch (error) {
-        console.error(`  ❌ Failed to send to ${user.name} (${user.phone})`, error)
-      }
-
-      // Skip delay on last user
-      if (i < users.length - 1) {
-        const delayMs = this.randomDelay(5000, 10000)
-        console.log(`  ⏳ Waiting ${delayMs}ms before next...`)
-        console.time(`  ⏳ Actual delay for ${user.name}`)
-        await this.wait(delayMs)
-        console.timeEnd(`  ⏳ Actual delay for ${user.name}`)
-      }
+    if (this.isSendingMessages) {
+      console.warn("[sendBulkMessages] ⚠️ Bulk message already in progress, skipping.")
+      return
     }
 
-    console.log(`[sendBulkMessages] ✅ Done. Sent to ${successCount}/${users.length} users.`)
+    this.isSendingMessages = true
 
-  } finally {
-    this.isSendingMessages = false
+    try {
+      const users = this.userManager.getUsers()
+
+      if (users.length === 0) {
+        console.warn("[sendBulkMessages] ⚠️ No users to send message to.")
+        return
+      }
+
+      console.log(`[sendBulkMessages] ✅ Sending to ${users.length} users...`)
+
+      let successCount = 0
+
+      for (const [i, user] of users.entries()) {
+        const phone = user.phone.replace(/\D/g, "") + "@c.us"
+        console.log(`[${i + 1}/${users.length}] ▶️ Sending to ${user.name} (${phone})`)
+
+        try {
+          await this.client.sendMessage(phone, message)
+          console.log(`  📤 Sent successfully.`)
+
+          this.messageHandler.addMessage(user.phone, {
+            from: phone,
+            content: message,
+            timestamp: new Date(),
+            isIncoming: false,
+          })
+
+          this.status.messagesSent++
+          successCount++
+        } catch (error) {
+          console.error(`  ❌ Failed to send to ${user.name} (${user.phone})`, error)
+        }
+
+        if (i < users.length - 1) {
+          const delayMs = this.randomDelay(5000, 10000)
+          console.log(`  ⏳ Waiting ${delayMs}ms before next...`)
+          console.time(`  ⏳ Actual delay for ${user.name}`)
+          await this.wait(delayMs)
+          console.timeEnd(`  ⏳ Actual delay for ${user.name}`)
+        }
+      }
+
+      console.log(`[sendBulkMessages] ✅ Done. Sent to ${successCount}/${users.length} users.`)
+
+    } finally {
+      this.isSendingMessages = false
+    }
   }
-}
 
-private randomDelay(minMs: number, maxMs: number): number {
-  return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs
-}
+  private randomDelay(minMs: number, maxMs: number): number {
+    return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs
+  }
 
-private wait(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-
-
+  private wait(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
+  }
 }
