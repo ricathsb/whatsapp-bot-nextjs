@@ -17,6 +17,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -31,6 +32,9 @@ import {
   MessageSquare,
   Wifi,
   WifiOff,
+  CheckCircle,
+  Clock,
+  XCircle,
 } from "lucide-react"
 
 interface UserInterface {
@@ -39,10 +43,12 @@ interface UserInterface {
   no_hp: string
   isActive: boolean
   status_langganan: "berlangganan" | "tidak"
+  status: "invalid" | "pending" | "verified"
   nik: string
   no_kpj: string
   updatedAt: string
   userId: string
+  verifiedAt?: string
 }
 
 interface ChatMessage {
@@ -53,8 +59,7 @@ interface ChatMessage {
 }
 
 const normalizePhone = (phone: string | undefined | null): string => {
-  if (!phone) return "" // Handle undefined/null case
-
+  if (!phone) return ""
   const digits = phone.replace(/\D/g, "")
   if (digits.startsWith("62")) {
     return digits
@@ -69,8 +74,7 @@ const getIncomingMessagesCount = (
   phone: string | undefined,
   chatHistory: { [phone: string]: ChatMessage[] },
 ): number => {
-  if (!phone) return 0 // Handle undefined case
-
+  if (!phone) return 0
   const normalizedPhone = normalizePhone(phone)
   const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedPhone)
   if (!matchingKey) return 0
@@ -84,6 +88,32 @@ const findUserByPhone = (users: UserInterface[], phone: string): UserInterface |
     const userPhone = normalizePhone(user.no_hp)
     return userPhone === normalizedPhone
   })
+}
+
+const getStatusBadgeVariant = (status: string) => {
+  switch (status) {
+    case "verified":
+      return "default"
+    case "pending":
+      return "secondary"
+    case "invalid":
+      return "destructive"
+    default:
+      return "outline"
+  }
+}
+
+const getStatusIcon = (status: string) => {
+  switch (status) {
+    case "verified":
+      return <CheckCircle className="h-3 w-3" />
+    case "pending":
+      return <Clock className="h-3 w-3" />
+    case "invalid":
+      return <XCircle className="h-3 w-3" />
+    default:
+      return null
+  }
 }
 
 export function UserManagement() {
@@ -267,6 +297,31 @@ export function UserManagement() {
     }
   }
 
+  const handleSubscriptionStatusChange = async (userId: string, newSubscriptionStatus: "berlangganan" | "tidak") => {
+    setLoading(true)
+    try {
+      const response = await fetch(`/api/users/${userId}/subscription`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status_langganan: newSubscriptionStatus }),
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        setUsers(users.map((u) => (u.id === userId ? data.data : u)))
+        setError(null)
+        console.log("Subscription status updated:", data.data)
+      } else {
+        setError(data.error)
+      }
+    } catch (error) {
+      console.error("Failed to update subscription status:", error)
+      setError("Failed to update subscription status")
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const openChatDialog = (user: UserInterface) => {
     const normalizedUserPhone = normalizePhone(user.no_hp)
     const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedUserPhone)
@@ -377,7 +432,6 @@ export function UserManagement() {
   const handleUpdateUser = async () => {
     if (!editingUser) return
 
-    // Check if at least one field has been modified from the original
     const hasChanges =
       formData.nama !== editingUser.nama ||
       formData.no_hp !== editingUser.no_hp ||
@@ -391,7 +445,6 @@ export function UserManagement() {
 
     setLoading(true)
     try {
-      // Send the data with the correct field names that match your interface
       const updates = {
         nama: formData.nama.trim(),
         no_hp: formData.no_hp.trim(),
@@ -407,7 +460,6 @@ export function UserManagement() {
 
       const data = await response.json()
       if (data.success) {
-        // Update the user in the state with the returned data
         setUsers(users.map((u) => (u.id === editingUser.id ? data.data : u)))
         setEditingUser(null)
         setFormData({ nama: "", no_hp: "", nik: "", no_kpj: "" })
@@ -481,11 +533,14 @@ export function UserManagement() {
   const closeEditDialog = () => {
     setEditingUser(null)
     setFormData({ nama: "", no_hp: "", nik: "", no_kpj: "" })
-    setError(null) // Clear any errors when closing
+    setError(null)
   }
 
   const activeUsersCount = users.filter((u) => u.isActive).length
   const inactiveUsersCount = users.length - activeUsersCount
+  const verifiedUsersCount = users.filter((u) => u.status === "verified").length
+  const pendingUsersCount = users.filter((u) => u.status === "pending").length
+  const invalidUsersCount = users.filter((u) => u.status === "invalid").length
 
   useEffect(() => {
     if (isChatDialogOpen && selectedUserPhone) {
@@ -527,7 +582,8 @@ export function UserManagement() {
               )}
             </CardTitle>
             <CardDescription>
-              Manage WhatsApp bot users and their status. Chat replies update in real-time via Server-Sent Events.
+              Manage WhatsApp bot users, subscription status, and verification. Chat replies update in real-time via
+              Server-Sent Events.
             </CardDescription>
           </div>
           <div className="flex gap-2">
@@ -628,10 +684,8 @@ export function UserManagement() {
         <Alert className="mb-4">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            <strong>Real-time Updates:</strong>{" "}
-            {isSSEConnected
-              ? "Chat replies are automatically updated via live connection. No need to refresh!"
-              : "Connection lost. Chat updates may be delayed until reconnected."}
+            <strong>Subscription Rules:</strong> Users can select subscription status. Unsubscribe → Pending (stays
+            verified), Subscribe → Pending. Verified users automatically become inactive.
           </AlertDescription>
         </Alert>
 
@@ -653,7 +707,7 @@ export function UserManagement() {
         )}
 
         {users.length > 0 && (
-          <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
             <Card>
               <CardContent className="pt-6">
                 <div className="text-2xl font-bold">{users.length}</div>
@@ -663,13 +717,31 @@ export function UserManagement() {
             <Card>
               <CardContent className="pt-6">
                 <div className="text-2xl font-bold text-green-600">{activeUsersCount}</div>
-                <p className="text-xs text-muted-foreground">Active Users</p>
+                <p className="text-xs text-muted-foreground">Active</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-6">
                 <div className="text-2xl font-bold text-gray-500">{inactiveUsersCount}</div>
-                <p className="text-xs text-muted-foreground">Inactive Users</p>
+                <p className="text-xs text-muted-foreground">Inactive</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-2xl font-bold text-green-600">{verifiedUsersCount}</div>
+                <p className="text-xs text-muted-foreground">Verified</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-2xl font-bold text-yellow-600">{pendingUsersCount}</div>
+                <p className="text-xs text-muted-foreground">Pending</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-2xl font-bold text-red-600">{invalidUsersCount}</div>
+                <p className="text-xs text-muted-foreground">Invalid</p>
               </CardContent>
             </Card>
           </div>
@@ -681,8 +753,9 @@ export function UserManagement() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Phone</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Active Status</TableHead>
                 <TableHead>Subscription</TableHead>
+                <TableHead>Verification Status</TableHead>
                 <TableHead>NIK</TableHead>
                 <TableHead>No. KPJ</TableHead>
                 <TableHead>Updated</TableHead>
@@ -693,13 +766,13 @@ export function UserManagement() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                     Loading users...
                   </TableCell>
                 </TableRow>
               ) : users.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                     No users found. Upload a CSV file above or add users manually to get started.
                   </TableCell>
                 </TableRow>
@@ -715,17 +788,48 @@ export function UserManagement() {
                           <Switch
                             checked={user.isActive}
                             onCheckedChange={() => handleToggleStatus(user.id)}
-                            disabled={loading}
+                            disabled={loading || user.status === "verified"}
                           />
                           <Badge variant={user.isActive ? "default" : "secondary"}>
                             {user.isActive ? "Active" : "Inactive"}
                           </Badge>
+                          {user.status === "verified" && (
+                            <Badge variant="outline" className="text-xs">
+                              Auto-disabled
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={user.status_langganan === "berlangganan" ? "default" : "outline"}>
-                          {user.status_langganan === "berlangganan" ? "Subscribed" : "Not Subscribed"}
+                        <Select
+                          value={user.status_langganan}
+                          onValueChange={(value: "berlangganan" | "tidak") =>
+                            handleSubscriptionStatusChange(user.id, value)
+                          }
+                          disabled={loading}
+                        >
+                          <SelectTrigger className="w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="berlangganan">Subscribe</SelectItem>
+                            <SelectItem value="tidak">Unsubscribe</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={getStatusBadgeVariant(user.status || "invalid")}
+                          className="flex items-center gap-1 w-fit"
+                        >
+                          {getStatusIcon(user.status || "invalid")}
+                          {user.status === "verified" ? "Verified" : user.status === "pending" ? "Pending" : "Invalid"}
                         </Badge>
+                        {user.verifiedAt && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            Verified: {new Date(user.verifiedAt).toLocaleDateString()}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>{user.nik || "-"}</TableCell>
                       <TableCell>{user.no_kpj || "-"}</TableCell>

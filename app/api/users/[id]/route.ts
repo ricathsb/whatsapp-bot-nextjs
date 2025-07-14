@@ -68,3 +68,49 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     )
   }
 }
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+
+    // Hapus nasabah berdasarkan ID
+    const deletedNasabah = await prisma.nasabah.delete({
+      where: { id },
+    })
+
+    // 🔁 Reload in-memory users
+    const service = global.whatsappService
+    const reloaded = await service?.getUserManager()?.loadUsersFromDatabase?.()
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        id: deletedNasabah.id,
+        nama: deletedNasabah.nama,
+        no_hp: deletedNasabah.no_hp,
+        nik: deletedNasabah.nik,
+        no_kpj: deletedNasabah.no_kpj,
+        reloaded,
+      },
+    })
+  } catch (error: any) {
+    if (error.code === "P2025") {
+      return NextResponse.json(
+        { success: false, error: "User not found in database" },
+        { status: 404 }
+      )
+    }
+
+    console.error("Failed to delete user:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 }
+    )
+  }
+}

@@ -74,3 +74,17 @@ export async function POST(request: NextRequest) {
     }, { status: 500 })
   }
 }
+
+export async function GET(request: NextRequest) {
+  try {
+    const users = await prisma.nasabah.findMany()
+    return NextResponse.json({ success: true, data: users })
+  } catch (error) {
+    console.error("Failed to fetch nasabah:", error)
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    }, { status: 500 })
+  }
+}
+
