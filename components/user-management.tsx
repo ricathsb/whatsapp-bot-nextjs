@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client"
 
 import { useState, useEffect, useRef } from "react"
@@ -37,12 +36,13 @@ import {
   XCircle,
 } from "lucide-react"
 
+// Types for the data structure
 interface UserInterface {
   id: string
   nama: string
   no_hp: string
   isActive: boolean
-  status_langganan: "berlangganan" | "tidak"
+  status_langganan: "subscribe" | "unsubscribe" | "invalid" // Changed from Indonesian terms
   status: "invalid" | "pending" | "verified"
   nik: string
   no_kpj: string
@@ -58,36 +58,13 @@ interface ChatMessage {
   isIncoming: boolean
 }
 
+// Utility functions
 const normalizePhone = (phone: string | undefined | null): string => {
   if (!phone) return ""
   const digits = phone.replace(/\D/g, "")
-  if (digits.startsWith("62")) {
-    return digits
-  }
-  if (digits.startsWith("0")) {
-    return "62" + digits.substring(1)
-  }
+  if (digits.startsWith("62")) return digits
+  if (digits.startsWith("0")) return "62" + digits.substring(1)
   return "62" + digits
-}
-
-const getIncomingMessagesCount = (
-  phone: string | undefined,
-  chatHistory: { [phone: string]: ChatMessage[] },
-): number => {
-  if (!phone) return 0
-  const normalizedPhone = normalizePhone(phone)
-  const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedPhone)
-  if (!matchingKey) return 0
-  const messages = chatHistory[matchingKey] || []
-  return messages.filter((msg) => msg.isIncoming).length
-}
-
-const findUserByPhone = (users: UserInterface[], phone: string): UserInterface | undefined => {
-  const normalizedPhone = normalizePhone(phone)
-  return users.find((user) => {
-    const userPhone = normalizePhone(user.no_hp)
-    return userPhone === normalizedPhone
-  })
 }
 
 const getStatusBadgeVariant = (status: string) => {
@@ -116,7 +93,34 @@ const getStatusIcon = (status: string) => {
   }
 }
 
+const getSubscriptionLabel = (status: string) => {
+  switch (status) {
+    case "subscribe":
+      return "Subscribe"
+    case "unsubscribe":
+      return "Unsubscribe"
+    case "invalid":
+      return "Invalid"
+    default:
+      return status
+  }
+}
+
+const getSubscriptionBadgeVariant = (status: string) => {
+  switch (status) {
+    case "subscribe":
+      return "default"
+    case "unsubscribe":
+      return "secondary"
+    case "invalid":
+      return "destructive"
+    default:
+      return "outline"
+  }
+}
+
 export function UserManagement() {
+  // State management
   const [users, setUsers] = useState<UserInterface[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -128,6 +132,8 @@ export function UserManagement() {
     nik: "",
     no_kpj: "",
   })
+
+  // Real-time chat state
   const [chatHistory, setChatHistory] = useState<{ [phone: string]: ChatMessage[] }>({})
   const [selectedUserChat, setSelectedUserChat] = useState<ChatMessage[]>([])
   const [isChatDialogOpen, setIsChatDialogOpen] = useState(false)
@@ -136,18 +142,26 @@ export function UserManagement() {
   const [isSSEConnected, setIsSSEConnected] = useState(false)
   const [sseError, setSSEError] = useState<string | null>(null)
   const [lastMessageTime, setLastMessageTime] = useState<string>("")
-  const eventSourceRef = useRef<EventSource | null>(null)
   const [readMessages, setReadMessages] = useState<{ [phone: string]: number }>({})
 
+  const eventSourceRef = useRef<EventSource | null>(null)
+
+  // Statistics calculations
+  const activeUsersCount = users.filter((u) => u.isActive).length
+  const inactiveUsersCount = users.length - activeUsersCount
+  const verifiedUsersCount = users.filter((u) => u.status === "verified").length
+  const pendingUsersCount = users.filter((u) => u.status === "pending").length
+  const invalidUsersCount = users.filter((u) => u.status === "invalid").length
+
+  // Initialize component
   useEffect(() => {
     fetchUsers()
     connectToSSE()
 
+    // Event listeners for external updates
     const handleRefresh = () => {
       console.log("Refreshing users due to CSV upload...")
-      setTimeout(() => {
-        fetchUsers()
-      }, 1000)
+      setTimeout(() => fetchUsers(), 1000)
     }
 
     const handleBulkUpdate = () => {
@@ -167,6 +181,7 @@ export function UserManagement() {
     }
   }, [])
 
+  // Real-time connection via Server-Sent Events
   const connectToSSE = () => {
     try {
       if (eventSourceRef.current) {
@@ -198,6 +213,7 @@ export function UserManagement() {
               return newChatHistory
             })
 
+            // Update active chat dialog if open
             if (isChatDialogOpen && selectedUserPhone) {
               const normalizedSelectedPhone = normalizePhone(selectedUserPhone)
               const matchingKey = Object.keys(newChatHistory).find(
@@ -206,14 +222,12 @@ export function UserManagement() {
               if (matchingKey) {
                 const updatedMessages = newChatHistory[matchingKey] || []
                 setSelectedUserChat(updatedMessages)
-                console.log(`Updated chat dialog for ${selectedUserName} with ${updatedMessages.length} total messages`)
               }
             }
           } else if (data.type === "chat-update") {
-            const { phone, message, contact } = data
+            const { phone, message } = data
             const normalizedPhone = normalizePhone(phone)
 
-            console.log(`📨 New message from ${contact?.name || phone}:`, message.content)
             setLastMessageTime(new Date().toLocaleTimeString())
 
             setChatHistory((prev) => {
@@ -221,31 +235,22 @@ export function UserManagement() {
               const keyToUse = existingKey || phone
               const prevMessages = prev[keyToUse] || []
               const updatedMessages = [...prevMessages, message]
-
-              console.log(`Updated chat history for ${keyToUse}: ${updatedMessages.length} total messages`)
               return { ...prev, [keyToUse]: updatedMessages }
             })
 
+            // Update active chat dialog if it matches current user
             if (isChatDialogOpen && selectedUserPhone) {
               const normalizedSelectedPhone = normalizePhone(selectedUserPhone)
               if (normalizedPhone === normalizedSelectedPhone) {
-                setSelectedUserChat((prev) => {
-                  const updated = [...prev, message]
-                  console.log(`📨 Realtime update: new message shown in chat dialog for ${selectedUserName}`)
-                  if (message.isIncoming) {
-                    setReadMessages((prevRead) => ({
-                      ...prevRead,
-                      [normalizedPhone]: (prevRead[normalizedPhone] || 0) + 1,
-                    }))
-                  }
-                  return updated
-                })
+                setSelectedUserChat((prev) => [...prev, message])
+                if (message.isIncoming) {
+                  setReadMessages((prevRead) => ({
+                    ...prevRead,
+                    [normalizedPhone]: (prevRead[normalizedPhone] || 0) + 1,
+                  }))
+                }
               }
             }
-
-            setUsers((prevUsers) => [...prevUsers])
-          } else {
-            console.warn("Received unknown SSE data type:", data.type)
           }
         } catch (error) {
           console.error("Error parsing SSE data:", error)
@@ -270,22 +275,16 @@ export function UserManagement() {
     }
   }
 
-  const reconnectSSE = () => {
-    setSSEError(null)
-    connectToSSE()
-  }
-
+  // API Functions
   const fetchUsers = async () => {
-    console.log("Fetching users...")
     setLoading(true)
     try {
       const response = await fetch("/api/users")
       const data = await response.json()
-      console.log("Users API response:", data)
 
       if (data.success) {
         setUsers(data.data)
-        console.log(`Loaded ${data.data.length} users in UI`)
+        console.log(`Loaded ${data.data.length} users`)
       } else {
         setError(data.error)
       }
@@ -297,20 +296,29 @@ export function UserManagement() {
     }
   }
 
-  const handleSubscriptionStatusChange = async (userId: string, newSubscriptionStatus: "berlangganan" | "tidak") => {
+  const handleSubscriptionStatusChange = async (userId: string, newStatus: "subscribe" | "unsubscribe" | "invalid") => {
     setLoading(true)
     try {
+      // Convert to Indonesian for API
+      let indonesianStatus: "berlangganan" | "tidak" | "invalid"
+      if (newStatus === "subscribe") {
+        indonesianStatus = "berlangganan"
+      } else if (newStatus === "unsubscribe") {
+        indonesianStatus = "tidak"
+      } else {
+        indonesianStatus = "invalid"
+      }
+
       const response = await fetch(`/api/users/${userId}/subscription`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status_langganan: newSubscriptionStatus }),
+        body: JSON.stringify({ status_langganan: indonesianStatus }),
       })
 
       const data = await response.json()
       if (data.success) {
         setUsers(users.map((u) => (u.id === userId ? data.data : u)))
         setError(null)
-        console.log("Subscription status updated:", data.data)
       } else {
         setError(data.error)
       }
@@ -322,73 +330,22 @@ export function UserManagement() {
     }
   }
 
-  const openChatDialog = (user: UserInterface) => {
-    const normalizedUserPhone = normalizePhone(user.no_hp)
-    const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedUserPhone)
-    const userMessages = matchingKey ? chatHistory[matchingKey] || [] : []
-
-    setSelectedUserChat(userMessages)
-    setSelectedUserName(user.nama)
-    setSelectedUserPhone(user.no_hp)
-    setIsChatDialogOpen(true)
-
-    const incomingCount = userMessages.filter((msg) => msg.isIncoming).length
-    setReadMessages((prev) => ({
-      ...prev,
-      [normalizedUserPhone]: incomingCount,
-    }))
-
-    console.log(
-      `Opening chat for ${user.nama} (${user.no_hp}), found ${userMessages.length} messages, marked ${incomingCount} as read`,
-    )
-  }
-
-  const getUnreadMessagesCount = (phone: string, chatHistory: { [phone: string]: ChatMessage[] }): number => {
-    const normalizedPhone = normalizePhone(phone)
-    const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedPhone)
-    if (!matchingKey) return 0
-
-    const messages = chatHistory[matchingKey] || []
-    const totalIncoming = messages.filter((msg) => msg.isIncoming).length
-    const readCount = readMessages[normalizedPhone] || 0
-    return Math.max(0, totalIncoming - readCount)
-  }
-
-  const handleBulkActivate = async () => {
-    if (!confirm("Are you sure you want to activate ALL users?")) return
-
+  const handleToggleStatus = async (id: string) => {
     setLoading(true)
     try {
-      const inactiveUsers = users.filter((u) => !u.isActive)
-      for (const user of inactiveUsers) {
-        await fetch(`/api/users/${user.id}/toggle`, {
-          method: "POST",
-        })
-      }
-      await fetchUsers()
-      setError(null)
-    } catch (error) {
-      setError("Failed to activate all users")
-    } finally {
-      setLoading(false)
-    }
-  }
+      const response = await fetch(`/api/users/${id}/toggle`, {
+        method: "POST",
+      })
 
-  const handleBulkDeactivate = async () => {
-    if (!confirm("Are you sure you want to deactivate ALL users?")) return
-
-    setLoading(true)
-    try {
-      const activeUsers = users.filter((u) => u.isActive)
-      for (const user of activeUsers) {
-        await fetch(`/api/users/${user.id}/toggle`, {
-          method: "POST",
-        })
+      const data = await response.json()
+      if (data.success) {
+        setUsers(users.map((u) => (u.id === id ? { ...u, isActive: data.data.isActive } : u)))
+        setError(null)
+      } else {
+        setError(data.error)
       }
-      await fetchUsers()
-      setError(null)
     } catch (error) {
-      setError("Failed to deactivate all users")
+      setError("Failed to toggle user status")
     } finally {
       setLoading(false)
     }
@@ -405,12 +362,7 @@ export function UserManagement() {
       const response = await fetch("/api/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nama: formData.nama,
-          no_hp: formData.no_hp,
-          nik: formData.nik,
-          no_kpj: formData.no_kpj,
-        }),
+        body: JSON.stringify(formData),
       })
 
       const data = await response.json()
@@ -432,30 +384,12 @@ export function UserManagement() {
   const handleUpdateUser = async () => {
     if (!editingUser) return
 
-    const hasChanges =
-      formData.nama !== editingUser.nama ||
-      formData.no_hp !== editingUser.no_hp ||
-      formData.nik !== (editingUser.nik || "") ||
-      formData.no_kpj !== (editingUser.no_kpj || "")
-
-    if (!hasChanges) {
-      setError("No changes detected")
-      return
-    }
-
     setLoading(true)
     try {
-      const updates = {
-        nama: formData.nama.trim(),
-        no_hp: formData.no_hp.trim(),
-        nik: formData.nik.trim(),
-        no_kpj: formData.no_kpj.trim(),
-      }
-
       const response = await fetch(`/api/users/${editingUser.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
+        body: JSON.stringify(formData),
       })
 
       const data = await response.json()
@@ -464,12 +398,10 @@ export function UserManagement() {
         setEditingUser(null)
         setFormData({ nama: "", no_hp: "", nik: "", no_kpj: "" })
         setError(null)
-        console.log("User updated successfully:", data.data)
       } else {
-        setError(data.error || "Failed to update user")
+        setError(data.error)
       }
     } catch (error) {
-      console.error("Update user error:", error)
       setError("Failed to update user")
     } finally {
       setLoading(false)
@@ -499,22 +431,77 @@ export function UserManagement() {
     }
   }
 
-  const handleToggleStatus = async (id: string) => {
+  // Chat functions
+  const getIncomingMessagesCount = (phone: string): number => {
+    const normalizedPhone = normalizePhone(phone)
+    const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedPhone)
+    if (!matchingKey) return 0
+
+    const messages = chatHistory[matchingKey] || []
+    return messages.filter((msg) => msg.isIncoming).length
+  }
+
+  const getUnreadMessagesCount = (phone: string): number => {
+    const normalizedPhone = normalizePhone(phone)
+    const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedPhone)
+    if (!matchingKey) return 0
+
+    const messages = chatHistory[matchingKey] || []
+    const totalIncoming = messages.filter((msg) => msg.isIncoming).length
+    const readCount = readMessages[normalizedPhone] || 0
+    return Math.max(0, totalIncoming - readCount)
+  }
+
+  const openChatDialog = (user: UserInterface) => {
+    const normalizedUserPhone = normalizePhone(user.no_hp)
+    const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedUserPhone)
+    const userMessages = matchingKey ? chatHistory[matchingKey] || [] : []
+
+    setSelectedUserChat(userMessages)
+    setSelectedUserName(user.nama)
+    setSelectedUserPhone(user.no_hp)
+    setIsChatDialogOpen(true)
+
+    // Mark messages as read
+    const incomingCount = userMessages.filter((msg) => msg.isIncoming).length
+    setReadMessages((prev) => ({
+      ...prev,
+      [normalizedUserPhone]: incomingCount,
+    }))
+  }
+
+  // Bulk operations
+  const handleBulkActivate = async () => {
+    if (!confirm("Are you sure you want to activate ALL users?")) return
+
     setLoading(true)
     try {
-      const response = await fetch(`/api/users/${id}/toggle`, {
-        method: "POST",
-      })
-
-      const data = await response.json()
-      if (data.success) {
-        setUsers(users.map((u) => (u.id === id ? { ...u, isActive: data.data.isActive } : u)))
-        setError(null)
-      } else {
-        setError(data.error)
+      const inactiveUsers = users.filter((u) => !u.isActive)
+      for (const user of inactiveUsers) {
+        await fetch(`/api/users/${user.id}/toggle`, { method: "POST" })
       }
+      await fetchUsers()
+      setError(null)
     } catch (error) {
-      setError("Failed to toggle user status")
+      setError("Failed to activate all users")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleBulkDeactivate = async () => {
+    if (!confirm("Are you sure you want to deactivate ALL users?")) return
+
+    setLoading(true)
+    try {
+      const activeUsers = users.filter((u) => u.isActive)
+      for (const user of activeUsers) {
+        await fetch(`/api/users/${user.id}/toggle`, { method: "POST" })
+      }
+      await fetchUsers()
+      setError(null)
+    } catch (error) {
+      setError("Failed to deactivate all users")
     } finally {
       setLoading(false)
     }
@@ -536,32 +523,14 @@ export function UserManagement() {
     setError(null)
   }
 
-  const activeUsersCount = users.filter((u) => u.isActive).length
-  const inactiveUsersCount = users.length - activeUsersCount
-  const verifiedUsersCount = users.filter((u) => u.status === "verified").length
-  const pendingUsersCount = users.filter((u) => u.status === "pending").length
-  const invalidUsersCount = users.filter((u) => u.status === "invalid").length
-
-  useEffect(() => {
-    if (isChatDialogOpen && selectedUserPhone) {
-      const normalizedSelectedPhone = normalizePhone(selectedUserPhone)
-      const matchingKey = Object.keys(chatHistory).find((key) => normalizePhone(key) === normalizedSelectedPhone)
-      if (matchingKey) {
-        const latestMessages = chatHistory[matchingKey] || []
-        setSelectedUserChat(latestMessages)
-        console.log(`Dialog updated for ${selectedUserName}, loaded ${latestMessages.length} messages`)
-      }
-    }
-  }, [chatHistory, isChatDialogOpen, selectedUserPhone, selectedUserName])
-
   return (
-    <Card>
+    <Card className="w-full">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
               <User className="h-5 w-5" />
-              User Management
+              WhatsApp Bot User Management
               <Badge variant={isSSEConnected ? "default" : "destructive"} className="text-xs">
                 {isSSEConnected ? (
                   <>
@@ -577,7 +546,7 @@ export function UserManagement() {
               </Badge>
               {lastMessageTime && (
                 <Badge variant="outline" className="text-xs">
-                  Last: {lastMessageTime}
+                  Last Message: {lastMessageTime}
                 </Badge>
               )}
             </CardTitle>
@@ -586,9 +555,10 @@ export function UserManagement() {
               Server-Sent Events.
             </CardDescription>
           </div>
+
           <div className="flex gap-2">
             {!isSSEConnected && (
-              <Button variant="outline" onClick={reconnectSSE} size="sm">
+              <Button variant="outline" onClick={connectToSSE} size="sm">
                 <Wifi className="h-4 w-4 mr-2" />
                 Reconnect
               </Button>
@@ -611,7 +581,7 @@ export function UserManagement() {
                 </DialogHeader>
                 <div className="space-y-4">
                   <div>
-                    <Label htmlFor="nama">Name</Label>
+                    <Label htmlFor="nama">Name *</Label>
                     <Input
                       id="nama"
                       value={formData.nama}
@@ -620,16 +590,16 @@ export function UserManagement() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="no_hp">Phone Number</Label>
+                    <Label htmlFor="no_hp">Phone Number *</Label>
                     <Input
                       id="no_hp"
                       value={formData.no_hp}
                       onChange={(e) => setFormData({ ...formData, no_hp: e.target.value })}
-                      placeholder="Enter phone number"
+                      placeholder="Enter phone number (e.g., 628123456789)"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="nik">NIK</Label>
+                    <Label htmlFor="nik">NIK (National ID)</Label>
                     <Input
                       id="nik"
                       value={formData.nik}
@@ -638,7 +608,7 @@ export function UserManagement() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="no_kpj">No. KPJ</Label>
+                    <Label htmlFor="no_kpj">No. KPJ (Social Security)</Label>
                     <Input
                       id="no_kpj"
                       value={formData.no_kpj}
@@ -662,6 +632,7 @@ export function UserManagement() {
       </CardHeader>
 
       <CardContent>
+        {/* Error Alerts */}
         {error && (
           <Alert variant="destructive" className="mb-4">
             <AlertCircle className="h-4 w-4" />
@@ -674,13 +645,14 @@ export function UserManagement() {
             <WifiOff className="h-4 w-4" />
             <AlertDescription className="flex items-center justify-between">
               <span>{sseError}</span>
-              <Button variant="outline" size="sm" onClick={reconnectSSE}>
+              <Button variant="outline" size="sm" onClick={connectToSSE}>
                 Retry Connection
               </Button>
             </AlertDescription>
           </Alert>
         )}
 
+        {/* Subscription Rules Info */}
         <Alert className="mb-4">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
@@ -689,6 +661,7 @@ export function UserManagement() {
           </AlertDescription>
         </Alert>
 
+        {/* Bulk Actions */}
         {users.length > 0 && (
           <div className="flex gap-2 mb-4">
             <Button
@@ -706,6 +679,7 @@ export function UserManagement() {
           </div>
         )}
 
+        {/* Statistics Dashboard */}
         {users.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
             <Card>
@@ -747,6 +721,7 @@ export function UserManagement() {
           </div>
         )}
 
+        {/* Users Table */}
         <div className="rounded-md border">
           <Table>
             <TableHeader>
@@ -773,16 +748,20 @@ export function UserManagement() {
               ) : users.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                    No users found. Upload a CSV file above or add users manually to get started.
+                    No users found. Upload a CSV file or add users manually to get started.
                   </TableCell>
                 </TableRow>
               ) : (
                 users.map((user) => {
-                  const incomingCount = getIncomingMessagesCount(user.no_hp, chatHistory)
+                  const incomingCount = getIncomingMessagesCount(user.no_hp)
+                  const unreadCount = getUnreadMessagesCount(user.no_hp)
+
                   return (
                     <TableRow key={user.id}>
                       <TableCell className="font-medium">{user.nama}</TableCell>
                       <TableCell>{user.no_hp || "-"}</TableCell>
+
+                      {/* Active Status with Toggle */}
                       <TableCell>
                         <div className="flex items-center space-x-2">
                           <Switch
@@ -800,23 +779,33 @@ export function UserManagement() {
                           )}
                         </div>
                       </TableCell>
+
+                      {/* Subscription Status Dropdown */}
                       <TableCell>
-                        <Select
-                          value={user.status_langganan}
-                          onValueChange={(value: "berlangganan" | "tidak") =>
-                            handleSubscriptionStatusChange(user.id, value)
-                          }
-                          disabled={loading}
-                        >
-                          <SelectTrigger className="w-32">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="berlangganan">Subscribe</SelectItem>
-                            <SelectItem value="tidak">Unsubscribe</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <div className="space-y-2">
+                          <Select
+                            value={user.status_langganan}
+                            onValueChange={(value: "subscribe" | "unsubscribe" | "invalid") =>
+                              handleSubscriptionStatusChange(user.id, value)
+                            }
+                            disabled={loading}
+                          >
+                            <SelectTrigger className="w-32">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="subscribe">Subscribe</SelectItem>
+                              <SelectItem value="unsubscribe">Unsubscribe</SelectItem>
+                              <SelectItem value="invalid">Invalid</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Badge variant={getSubscriptionBadgeVariant(user.status_langganan)} className="text-xs">
+                            {getSubscriptionLabel(user.status_langganan)}
+                          </Badge>
+                        </div>
                       </TableCell>
+
+                      {/* Verification Status */}
                       <TableCell>
                         <Badge
                           variant={getStatusBadgeVariant(user.status || "invalid")}
@@ -831,9 +820,12 @@ export function UserManagement() {
                           </div>
                         )}
                       </TableCell>
+
                       <TableCell>{user.nik || "-"}</TableCell>
                       <TableCell>{user.no_kpj || "-"}</TableCell>
                       <TableCell>{new Date(user.updatedAt).toLocaleDateString()}</TableCell>
+
+                      {/* Chat Replies with Unread Count */}
                       <TableCell>
                         {incomingCount > 0 ? (
                           <Button
@@ -846,12 +838,10 @@ export function UserManagement() {
                             <span className="font-medium">{incomingCount}</span>
                             {incomingCount === 1 ? "reply" : "replies"}
                             {isSSEConnected && <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>}
-                            {getUnreadMessagesCount(user.no_hp, chatHistory) > 0 && (
-                              <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center">
-                                <span className="text-white text-xs font-bold leading-none">
-                                  {getUnreadMessagesCount(user.no_hp, chatHistory) > 9
-                                    ? "9+"
-                                    : getUnreadMessagesCount(user.no_hp, chatHistory)}
+                            {unreadCount > 0 && (
+                              <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
+                                <span className="text-white text-xs font-bold">
+                                  {unreadCount > 9 ? "9+" : unreadCount}
                                 </span>
                               </div>
                             )}
@@ -860,6 +850,8 @@ export function UserManagement() {
                           <span className="text-muted-foreground text-sm">No replies</span>
                         )}
                       </TableCell>
+
+                      {/* Action Buttons */}
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end space-x-2">
                           <Button variant="outline" size="sm" onClick={() => openEditDialog(user)}>
@@ -939,7 +931,7 @@ export function UserManagement() {
           </DialogContent>
         </Dialog>
 
-        {/* Chat Dialog */}
+        {/* Chat History Dialog */}
         <Dialog open={isChatDialogOpen} onOpenChange={setIsChatDialogOpen}>
           <DialogContent className="max-w-2xl max-h-[80vh]">
             <DialogHeader>
@@ -964,6 +956,7 @@ export function UserManagement() {
                 All messages from this user {isSSEConnected ? "(updates in real-time)" : "(updates when reconnected)"}
               </DialogDescription>
             </DialogHeader>
+
             <div className="max-h-96 overflow-y-auto space-y-3">
               {selectedUserChat.length === 0 ? (
                 <p className="text-muted-foreground text-center py-8">No messages found</p>
@@ -988,6 +981,7 @@ export function UserManagement() {
                 ))
               )}
             </div>
+
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsChatDialogOpen(false)}>
                 Close
