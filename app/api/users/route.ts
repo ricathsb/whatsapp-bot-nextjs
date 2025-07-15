@@ -1,14 +1,15 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { NextRequest, NextResponse } from "next/server"
 import { PrismaClient } from "@prisma/client"
 import jwt from "jsonwebtoken"
+import crypto from "crypto"
 
 const prisma = new PrismaClient()
 const JWT_SECRET = process.env.JWT_SECRET!
 
+// 🔹 POST - Create or update nasabah
 export async function POST(request: NextRequest) {
   try {
-    // 🔐 Ambil token dari cookie
+    // Ambil token dari cookie
     const cookieHeader = request.headers.get("cookie")
     const token = cookieHeader
       ?.split(";")
@@ -22,21 +23,22 @@ export async function POST(request: NextRequest) {
     let decoded
     try {
       decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
-    } catch (err) {
+    } catch {
       return NextResponse.json({ success: false, error: "Invalid token" }, { status: 401 })
     }
 
     const userId = decoded.userId
 
-    // 🧾 Ambil payload JSON
+    // Ambil dan validasi body
     const body = await request.json()
     const { nama, no_hp, nik, no_kpj } = body
 
-    if (!nama || !no_hp || !nik || !no_kpj) {
+    if (!nama?.trim() || !no_hp?.trim() || !nik?.trim() || !no_kpj?.trim()) {
       return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 })
     }
 
-    // Simpan ke DB pakai upsert (berdasarkan nik)
+    const now = new Date()
+
     const result = await prisma.nasabah.upsert({
       where: { nik },
       update: {
@@ -47,8 +49,9 @@ export async function POST(request: NextRequest) {
         no_kpj,
         userId,
         isActive: true,
-        verifiedAt: new Date(),
-        updatedAt: new Date(),
+        isSended: true,
+        verifiedAt: now,
+        updatedAt: now,
       },
       create: {
         id: crypto.randomUUID(),
@@ -60,8 +63,9 @@ export async function POST(request: NextRequest) {
         no_kpj,
         userId,
         isActive: true,
-        verifiedAt: new Date(),
-        updatedAt: new Date(),
+        isSended: true,
+        verifiedAt: now,
+        updatedAt: now,
       },
     })
 
@@ -75,9 +79,50 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// 🔹 GET - Fetch nasabah milik user login
 export async function GET(request: NextRequest) {
   try {
-    const users = await prisma.nasabah.findMany()
+    // Ambil token dari cookie
+    const cookieHeader = request.headers.get("cookie")
+    const token = cookieHeader
+      ?.split(";")
+      .find((c) => c.trim().startsWith("auth-token="))
+      ?.split("=")[1]
+
+    if (!token) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+
+    let decoded
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
+    } catch {
+      return NextResponse.json({ success: false, error: "Invalid token" }, { status: 401 })
+    }
+
+    const userId = decoded.userId
+
+    // Ambil hanya nasabah yang dimiliki oleh user tersebut
+    const users = await prisma.nasabah.findMany({
+      where: {
+        userId: userId,
+      },
+      select: {
+        id: true,
+        nama: true,
+        no_hp: true,
+        nik: true,
+        no_kpj: true,
+        status: true,
+        status_langganan: true,
+        isActive: true,
+        isSended: true,
+        verifiedAt: true,
+        updatedAt: true,
+        userId: true,
+      },
+    })
+
     return NextResponse.json({ success: true, data: users })
   } catch (error) {
     console.error("Failed to fetch nasabah:", error)
@@ -87,4 +132,3 @@ export async function GET(request: NextRequest) {
     }, { status: 500 })
   }
 }
-

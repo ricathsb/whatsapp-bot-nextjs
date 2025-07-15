@@ -30,6 +30,7 @@ model nasabah {
   updatedAt        DateTime
   userId           String
   isActive         Boolean   @default(true)
+  isSended         Boolean   @default(true)
   verifiedAt       DateTime?
   users            User      @relation(fields: [userId], references: [id])
 }

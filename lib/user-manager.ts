@@ -1,17 +1,48 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { User } from "./types/whatsapp"
 import { PhoneNormalizer } from "./phone-normalizer"
 import { PrismaClient } from "@prisma/client"
+import jwt from "jsonwebtoken"
 
 const prisma = new PrismaClient()
+const JWT_SECRET = process.env.JWT_SECRET!
 
 export class UserManager {
   private users: User[] = []
 
-  // ✅ Load user dari DB dan isi ke memory
-  async loadUsersFromDatabase(): Promise<number> {
-    console.log("[UserManager] ===== LOADING USERS FROM DATABASE =====")
+  // ✅ Load nasabah milik user berdasarkan JWT
+  async loadUsersFromDatabase(token: string): Promise<number> {
+    console.log("[UserManager] ===== LOADING USERS FOR LOGGED-IN USER =====")
+
+    if (!token) {
+      console.error("[UserManager] ❌ No token provided")
+      return 0
+    }
+
+    if (!JWT_SECRET) {
+      console.error("[UserManager] ❌ JWT_SECRET is not set in environment")
+      return 0
+    }
+
+    let decoded: jwt.JwtPayload
+
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as jwt.JwtPayload
+    } catch (err: any) {
+      console.error("[UserManager] ❌ Invalid JWT Token:", err.message)
+      return 0
+    }
+
+    const userId = decoded.userId
+    if (!userId) {
+      console.error("[UserManager] ❌ userId missing in token payload")
+      return 0
+    }
+
+    console.log("[UserManager] ✅ Decoded userId:", userId)
 
     const nasabahList = await prisma.nasabah.findMany({
+      where: { userId },
       select: {
         id: true,
         nama: true,
@@ -20,14 +51,23 @@ export class UserManager {
       },
     })
 
-    console.log("[UserManager] Raw data from DB:", nasabahList)
+    return this.processNasabahList(nasabahList)
+  }
 
+  private processNasabahList(nasabahList: { id: string, nama: string, no_hp: string, isActive: boolean }[]): number {
     let addedCount = 0
     let skippedCount = 0
 
     for (const n of nasabahList) {
       const name = n.nama?.trim()
       const phoneRaw = n.no_hp?.trim()
+
+      console.log(`[UserManager] 🔍 Entry:`, {
+        id: n.id,
+        nama: name,
+        no_hp: phoneRaw,
+        isActiveFromDB: n.isActive,
+      })
 
       if (!name || !phoneRaw) continue
       if (!PhoneNormalizer.isValid(phoneRaw)) continue
@@ -40,7 +80,7 @@ export class UserManager {
         continue
       }
 
-      const isActive = n.isActive === true // pastikan benar boolean true
+      const isActive = n.isActive === true
       console.log(`[UserManager] ➕ ${name} (${phone}) - isActive: ${isActive}`)
 
       this.addUser(name, phone, isActive, n.id)
@@ -55,7 +95,6 @@ export class UserManager {
     return addedCount
   }
 
-  // ➕ Tambahkan user ke memori
   addUser(name: string, phone: string, isActive = true, id?: string): User {
     const normalizedPhone = PhoneNormalizer.normalize(phone)
 
@@ -74,7 +113,6 @@ export class UserManager {
     return user
   }
 
-  // 🟡 Update data user
   updateUser(id: string, updates: Partial<User>): User | null {
     const index = this.users.findIndex((u) => u.id === id)
     if (index === -1) return null
@@ -82,7 +120,6 @@ export class UserManager {
     return this.users[index]
   }
 
-  // ❌ Hapus user berdasarkan ID
   deleteUser(id: string): boolean {
     const index = this.users.findIndex((u) => u.id === id)
     if (index === -1) return false
@@ -90,18 +127,15 @@ export class UserManager {
     return true
   }
 
-  // 🧹 Bersihkan semua user dari memori
   clearUsers(): void {
     console.log(`[UserManager] 🧹 Cleared ${this.users.length} users`)
     this.users = []
   }
 
-  // 🔁 Kembalikan semua user
   getUsers(): User[] {
     return [...this.users]
   }
 
-  // 🚫 Set semua user menjadi tidak aktif
   deactivateAllUsers(): number {
     let count = 0
     this.users.forEach((user) => {

@@ -58,33 +58,34 @@ export class WhatsAppClient extends EventEmitter {
     return this.userManager.deleteUser(id)
   }
 
-  toggleUserStatus(id: string) {
-    return this.userManager.toggleUserStatus(id)
-  }
+  // toggleUserStatus(id: string) {
+  //   return this.userManager.toggleUserStatus(id)
+  // }
 
-  activateAllUsers() {
-    return this.userManager.activateAllUsers()
-  }
+  // activateAllUsers() {
+  //   return this.userManager.activateAllUsers()
+  // }
 
   deactivateAllUsers() {
     return this.userManager.deactivateAllUsers()
   }
 
-  getActiveUsers() {
-    return this.userManager.getActiveUsers()
-  }
+  // getActiveUsers() {
+  //   return this.userManager.getActiveUsers()
+  // }
 
-  isUserActive(phone: string) {
-    return this.userManager.isUserActive(phone)
-  }
+  // isUserActive(phone: string) {
+  //   return this.userManager.isUserActive(phone)
+  // }
 
   clearUsers() {
     return this.userManager.clearUsers()
   }
 
-  async loadUsersFromDatabase() {
-    return this.userManager.loadUsersFromDatabase()
+    async loadUsersFromDatabase(token?: string) {
+    return this.userManager.loadUsersFromDatabase(token)
   }
+
 
   getUserManager() {
   return this.userManager
@@ -109,7 +110,7 @@ export class WhatsAppClient extends EventEmitter {
     return this.messageHandler.getAllChatHistory()
   }
 
-  async start(): Promise<void> {
+  async start(token?: string): Promise<void> {
     if (this.status.isRunning || this.client) {
       console.log("[WhatsAppClient] Already running")
       return
@@ -118,7 +119,7 @@ export class WhatsAppClient extends EventEmitter {
     try {
       console.log("[WhatsAppClient] 🚀 Starting WhatsApp Bot Service...")
 
-      const activatedCount = await this.loadUsersFromDatabase()
+      const activatedCount = await this.loadUsersFromDatabase(token)
       console.log(`[WhatsAppClient] ✅ Loaded ${activatedCount} users from database`)
 
       const contactCount = await this.loadContacts()
