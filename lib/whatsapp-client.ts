@@ -41,9 +41,10 @@ export class WhatsAppClient extends EventEmitter {
     }
   }
 
-  // User management
   addUser(name: string, phone: string) {
-    return this.userManager.addUser(name, phone)
+    const newUser = this.userManager.addUser(name, phone)
+    this.emit("users_bulk_updated", { action: "added", user: newUser })
+    return newUser
   }
 
   getUsers() {
@@ -51,45 +52,32 @@ export class WhatsAppClient extends EventEmitter {
   }
 
   updateUser(id: string, updates: any) {
-    return this.userManager.updateUser(id, updates)
+    const updated = this.userManager.updateUser(id, updates)
+    this.emit("users_bulk_updated", { action: "updated", id, updates })
+    return updated
   }
 
   deleteUser(id: string) {
-    return this.userManager.deleteUser(id)
+    const deleted = this.userManager.deleteUser(id)
+    this.emit("users_bulk_updated", { action: "deleted", id })
+    return deleted
   }
-
-  // toggleUserStatus(id: string) {
-  //   return this.userManager.toggleUserStatus(id)
-  // }
-
-  // activateAllUsers() {
-  //   return this.userManager.activateAllUsers()
-  // }
 
   deactivateAllUsers() {
     return this.userManager.deactivateAllUsers()
   }
 
-  // getActiveUsers() {
-  //   return this.userManager.getActiveUsers()
-  // }
-
-  // isUserActive(phone: string) {
-  //   return this.userManager.isUserActive(phone)
-  // }
-
   clearUsers() {
     return this.userManager.clearUsers()
   }
 
-    async loadUsersFromDatabase(token?: string) {
+  async loadUsersFromDatabase(token?: string) {
     return this.userManager.loadUsersFromDatabase(token)
   }
 
-
   getUserManager() {
-  return this.userManager
-}
+    return this.userManager
+  }
 
   async loadContacts(): Promise<number> {
     const count = this.userManager.getUsers().length
@@ -148,6 +136,13 @@ export class WhatsAppClient extends EventEmitter {
       this.reconnectAttempts = 0
       this.logStatus()
 
+      // ✅ Emit status update to SSE
+      this.emit("status_changed", {
+        isRunning: true,
+        isReady: false,
+        message: "Bot is starting...",
+      })
+
       this.setupEventHandlers()
       await this.client.initialize()
 
@@ -166,7 +161,15 @@ export class WhatsAppClient extends EventEmitter {
     console.log(`[WhatsAppClient] ✅ ${deactivatedCount} users deactivated`)
 
     this.emit("users_bulk_updated", { action: "deactivated", count: deactivatedCount })
+
     await this.cleanup()
+
+    // ✅ Emit to SSE
+    this.emit("status_changed", {
+      isRunning: false,
+      isReady: false,
+      message: "Bot has been stopped.",
+    })
   }
 
   private setupEventHandlers() {
@@ -196,6 +199,13 @@ export class WhatsAppClient extends EventEmitter {
       this.status.error = undefined
       this.emit("ready")
       this.logStatus()
+
+      // ✅ Emit ready status
+      this.emit("status_changed", {
+        isRunning: true,
+        isReady: true,
+        message: "Bot is ready.",
+      })
     })
 
     this.client.on("disconnected", async (reason: string) => {
@@ -224,61 +234,54 @@ export class WhatsAppClient extends EventEmitter {
     })
   }
 
-private async handleIncomingMessage(msg: Message) {
-  if (msg.fromMe) return
+  private async handleIncomingMessage(msg: Message) {
+    if (msg.fromMe) return
 
-  try {
-    const phone = msg.from.split("@")[0]
-    const users = this.userManager.getUsers()
-    const contact = users.find((u) => u.phone === phone)
+    try {
+      const phone = msg.from.split("@")[0]
+      const users = this.userManager.getUsers()
+      const contact = users.find((u) => u.phone === phone)
 
-    // ❌ Abaikan kalau tidak ditemukan di kontak
-    if (!contact) {
-      console.log(`[WhatsAppClient] 🚫 Message from unknown number: ${phone} - Ignored`)
-      return
-    }
-
-    const message: ChatMessage = {
-      from: msg.from,
-      content: msg.body,
-      timestamp: new Date(),
-      isIncoming: true,
-    }
-
-    this.messageHandler.addMessage(phone, message)
-    console.log(`[WhatsAppClient] 💬 Message from ${contact.name} (${phone}): ${msg.body}`)
-
-    this.emit("chat-update", { contact, message, phone })
-
-    // ❌ Jangan balas kalau isActive === false
-    if (!contact.isActive) {
-      console.log(`[WhatsAppClient] ⚠️ Auto-reply disabled for ${contact.name} (${phone}) (isActive = false)`)
-      return
-    }
-
-    const replyContent = await this.messageHandler.generateReply(msg.body, contact.name)
-    if (replyContent) {
-      await this.sendReply(msg.from, replyContent)
-
-      const botMessage: ChatMessage = {
-        from: msg.to,
-        content: replyContent,
-        timestamp: new Date(),
-        isIncoming: false,
+      if (!contact) {
+        console.log(`[WhatsAppClient] 🚫 Message from unknown number: ${phone} - Ignored`)
+        return
       }
 
-      this.messageHandler.addMessage(phone, botMessage)
-      this.emit("chat-update", {
-        contact,
-        message: botMessage,
-        phone,
-      })
-    }
-  } catch (error) {
-    console.error("[WhatsAppClient] Error processing message:", error)
-  }
-}
+      const message: ChatMessage = {
+        from: msg.from,
+        content: msg.body,
+        timestamp: new Date(),
+        isIncoming: true,
+      }
 
+      this.messageHandler.addMessage(phone, message)
+      console.log(`[WhatsAppClient] 💬 Message from ${contact.name} (${phone}): ${msg.body}`)
+
+      this.emit("chat-update", { contact, message, phone })
+
+      if (!contact.isActive) {
+        console.log(`[WhatsAppClient] ⚠️ Auto-reply disabled for ${contact.name} (${phone})`)
+        return
+      }
+
+      const replyContent = await this.messageHandler.generateReply(msg.body, contact.name)
+      if (replyContent) {
+        await this.sendReply(msg.from, replyContent)
+
+        const botMessage: ChatMessage = {
+          from: msg.to,
+          content: replyContent,
+          timestamp: new Date(),
+          isIncoming: false,
+        }
+
+        this.messageHandler.addMessage(phone, botMessage)
+        this.emit("chat-update", { contact, message: botMessage, phone })
+      }
+    } catch (error) {
+      console.error("[WhatsAppClient] Error processing message:", error)
+    }
+  }
 
   async sendReply(to: string, message: string): Promise<boolean> {
     if (!this.status.isReady || !this.client) return false
@@ -317,6 +320,13 @@ private async handleIncomingMessage(msg: Message) {
       this.status.isRunning = false
       this.status.isReady = false
       this.logStatus()
+
+      // ✅ Emit cleanup status
+      this.emit("status_changed", {
+        isRunning: false,
+        isReady: false,
+        message: "Bot cleaned up and stopped.",
+      })
     }
   }
 
@@ -384,14 +394,11 @@ private async handleIncomingMessage(msg: Message) {
         if (i < users.length - 1) {
           const delayMs = this.randomDelay(5000, 10000)
           console.log(`  ⏳ Waiting ${delayMs}ms before next...`)
-          console.time(`  ⏳ Actual delay for ${user.name}`)
           await this.wait(delayMs)
-          console.timeEnd(`  ⏳ Actual delay for ${user.name}`)
         }
       }
 
       console.log(`[sendBulkMessages] ✅ Done. Sent to ${successCount}/${users.length} users.`)
-
     } finally {
       this.isSendingMessages = false
     }
@@ -402,7 +409,6 @@ private async handleIncomingMessage(msg: Message) {
   }
 
   private wait(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms))
+    return new Promise((resolve) => setTimeout(resolve, ms))
   }
 }
-
