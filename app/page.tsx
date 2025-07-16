@@ -37,10 +37,40 @@ export default function WhatsAppBot() {
   const [isAuthChecking, setIsAuthChecking] = useState(true)
 
   useEffect(() => {
-    checkStatus()
-    const interval = setInterval(checkStatus, 2000)
-    return () => clearInterval(interval)
+    const eventSource = new EventSource("/api/sse")
+
+    eventSource.onmessage = (event) => {
+      const payload = JSON.parse(event.data)
+
+      if (payload.type === "status") {
+        setStatus((prev) => ({
+          ...prev,
+          ...payload,
+        }))
+      }
+
+      if (payload.type === "qr") {
+        setStatus((prev) => ({
+          ...prev,
+          qrCode: payload.qrCode,
+        }))
+      }
+
+      if (payload.type === "chat-update") {
+        setLogs((prev) => [...prev, `📩 New message from ${payload.contact?.name || payload.phone}`])
+      }
+    }
+
+    eventSource.onerror = (err) => {
+      console.error("SSE error:", err)
+      eventSource.close()
+    }
+
+    return () => {
+      eventSource.close()
+    }
   }, [])
+
 
   useEffect(() => {
     const checkAuth = async () => {
