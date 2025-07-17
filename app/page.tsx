@@ -100,15 +100,15 @@ export default function WhatsAppBot() {
     }
   }
 
-  const checkStatus = async () => {
-    try {
-      const response = await fetch("/api/whatsapp/status")
-      const data = await response.json()
-      setStatus(data)
-    } catch (error) {
-      console.error("Failed to check status:", error)
-    }
-  }
+  // const checkStatus = async () => {
+  //   try {
+  //     const response = await fetch("/api/whatsapp/status")
+  //     const data = await response.json()
+  //     setStatus(data)
+  //   } catch (error) {
+  //     console.error("Failed to check status:", error)
+  //   }
+  // }
 
   const startBot = async () => {
     try {

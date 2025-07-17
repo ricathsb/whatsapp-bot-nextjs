@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/sse/route.ts
 import { NextRequest } from 'next/server'
 import { WhatsAppService } from '@/lib/whatsapp-service'
