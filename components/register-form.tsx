@@ -248,7 +248,7 @@ export function RegisterForm() {
           <Checkbox
             id="terms"
             checked={agreeTerms}
-            onCheckedChange={setAgreeTerms}
+            onCheckedChange={(checked) => setAgreeTerms(checked === true)}
             disabled={isLoading}
             className="mt-1"
           />

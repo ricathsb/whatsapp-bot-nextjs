@@ -35,9 +35,8 @@ export class WhatsAppService extends WhatsAppClient {
   startWithToken(token: string): Promise<void> {
     return this.start(token)
   }
-}
+  }
 
-// Optional: init global in dev mode
 if (process.env.NODE_ENV === "development") {
   if (!globalThis.whatsappService) {
     globalThis.whatsappService = WhatsAppService.getInstance()

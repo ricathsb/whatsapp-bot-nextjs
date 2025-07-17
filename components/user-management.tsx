@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable react-hooks/exhaustive-deps */
 "use client"
 
 import { useState, useEffect, useRef } from "react"
@@ -34,7 +36,6 @@ import {
   CheckCircle,
   Clock,
   XCircle,
-  Send,
 } from "lucide-react"
 
 interface UserInterface {
@@ -93,31 +94,31 @@ const getStatusIcon = (status: string) => {
   }
 }
 
-const getSubscriptionLabel = (status: string) => {
-  switch (status) {
-    case "subscribe":
-      return "Subscribe"
-    case "unsubscribe":
-      return "Unsubscribe"
-    case "invalid":
-      return "Invalid"
-    default:
-      return status
-  }
-}
+// const getSubscriptionLabel = (status: string) => {
+//   switch (status) {
+//     case "subscribe":
+//       return "Subscribe"
+//     case "unsubscribe":
+//       return "Unsubscribe"
+//     case "invalid":
+//       return "Invalid"
+//     default:
+//       return status
+//   }
+// }
 
-const getSubscriptionBadgeVariant = (status: string) => {
-  switch (status) {
-    case "subscribe":
-      return "default"
-    case "unsubscribe":
-      return "secondary"
-    case "invalid":
-      return "destructive"
-    default:
-      return "outline"
-  }
-}
+// const getSubscriptionBadgeVariant = (status: string) => {
+//   switch (status) {
+//     case "subscribe":
+//       return "default"
+//     case "unsubscribe":
+//       return "secondary"
+//     case "invalid":
+//       return "destructive"
+//     default:
+//       return "outline"
+//   }
+// }
 
 export function UserManagement() {
   const [users, setUsers] = useState<UserInterface[]>([])

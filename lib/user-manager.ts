@@ -11,7 +11,7 @@ export class UserManager {
   private users: User[] = []
 
   // ✅ Load nasabah milik user berdasarkan JWT
-  async loadUsersFromDatabase(token: string): Promise<number> {
+  async loadUsersFromDatabase(token?: string): Promise<number> {
     console.log("[UserManager] ===== LOADING USERS FOR LOGGED-IN USER =====")
 
     if (!token) {

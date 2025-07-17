@@ -1,134 +1,76 @@
-import { NextRequest, NextResponse } from "next/server"
-import { PrismaClient } from "@prisma/client"
-import jwt from "jsonwebtoken"
-import crypto from "crypto"
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { NextRequest, NextResponse } from 'next/server'
+import { PrismaClient } from '@prisma/client'
+import jwt from 'jsonwebtoken'
 
 const prisma = new PrismaClient()
 const JWT_SECRET = process.env.JWT_SECRET!
 
-// 🔹 POST - Create or update nasabah
-export async function POST(request: NextRequest) {
+// ✅ Gunakan parameter context seperti ini (tanpa define type manual)
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
-    // Ambil token dari cookie
-    const cookieHeader = request.headers.get("cookie")
-    const token = cookieHeader
-      ?.split(";")
-      .find((c) => c.trim().startsWith("auth-token="))
-      ?.split("=")[1]
-
-    if (!token) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
-    }
-
-    let decoded
-    try {
-      decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
-    } catch {
-      return NextResponse.json({ success: false, error: "Invalid token" }, { status: 401 })
-    }
-
-    const userId = decoded.userId
-
-    // Ambil dan validasi body
-    const body = await request.json()
-    const { nama, no_hp, nik, no_kpj } = body
-
-    if (!nama?.trim() || !no_hp?.trim() || !nik?.trim() || !no_kpj?.trim()) {
-      return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 })
-    }
-
-    const now = new Date()
-
-    const result = await prisma.nasabah.upsert({
-      where: { nik },
-      update: {
-        nama,
-        no_hp,
-        status: "verified",
-        status_langganan: "invalid",
-        no_kpj,
-        userId,
-        isActive: true,
-        isSended: true,
-        verifiedAt: now,
-        updatedAt: now,
-      },
-      create: {
-        id: crypto.randomUUID(),
-        nama,
-        no_hp,
-        status: "verified",
-        status_langganan: "invalid",
-        nik,
-        no_kpj,
-        userId,
-        isActive: true,
-        isSended: true,
-        verifiedAt: now,
-        updatedAt: now,
+    const user = await prisma.user.findUnique({
+      where: { id: params.id },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        createdAt: true,
       },
     })
 
-    return NextResponse.json({ success: true, data: result })
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'User not found' }, { status: 404 })
+    }
+
+    return NextResponse.json({ success: true, data: user })
   } catch (error) {
-    console.error("Failed to save nasabah:", error)
     return NextResponse.json({
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: error instanceof Error ? error.message : 'Unknown error',
     }, { status: 500 })
   }
 }
 
-// 🔹 GET - Fetch nasabah milik user login
-export async function GET(request: NextRequest) {
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
-    // Ambil token dari cookie
-    const cookieHeader = request.headers.get("cookie")
+    const cookieHeader = req.headers.get('cookie')
     const token = cookieHeader
-      ?.split(";")
-      .find((c) => c.trim().startsWith("auth-token="))
-      ?.split("=")[1]
+      ?.split(';')
+      .find((c) => c.trim().startsWith('auth-token='))
+      ?.split('=')[1]
 
     if (!token) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
-    let decoded
-    try {
-      decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
-    } catch {
-      return NextResponse.json({ success: false, error: "Invalid token" }, { status: 401 })
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
+
+    const { name, email } = await req.json()
+
+    if (!name?.trim() || !email?.trim()) {
+      return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 })
     }
 
-    const userId = decoded.userId
-
-    // Ambil hanya nasabah yang dimiliki oleh user tersebut
-    const users = await prisma.nasabah.findMany({
-      where: {
-        userId: userId,
-      },
-      select: {
-        id: true,
-        nama: true,
-        no_hp: true,
-        nik: true,
-        no_kpj: true,
-        status: true,
-        status_langganan: true,
-        isActive: true,
-        isSended: true,
-        verifiedAt: true,
-        updatedAt: true,
-        userId: true,
+    const updated = await prisma.user.update({
+      where: { id: params.id },
+      data: {
+        name,
+        email,
       },
     })
 
-    return NextResponse.json({ success: true, data: users })
+    return NextResponse.json({ success: true, data: updated })
   } catch (error) {
-    console.error("Failed to fetch nasabah:", error)
     return NextResponse.json({
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: error instanceof Error ? error.message : 'Unknown error',
     }, { status: 500 })
   }
 }
