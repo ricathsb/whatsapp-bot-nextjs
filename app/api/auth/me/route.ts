@@ -8,18 +8,18 @@ export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization")
 
   const bearerToken = authHeader?.startsWith("Bearer ")
-    ? authHeader.split(" ")[1]
-    : null
+      ? authHeader.split(" ")[1]
+      : null
 
   const token =
-    bearerToken ||
-    cookieHeader
-      ?.split(";")
-      .find((c) => c.trim().startsWith("auth-token="))
-      ?.split("=")[1]
+      bearerToken ||
+      cookieHeader
+          ?.split(";")
+          .find((c) => c.trim().startsWith("auth-token="))
+          ?.split("=")[1]
 
   if (!token) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    return NextResponse.json({ error: "Unauthorized: token missing" }, { status: 401 })
   }
 
   const cleanToken = decodeURIComponent(token)
@@ -40,9 +40,10 @@ export async function GET(request: Request) {
       users: whatsappService.getUsers(),
     })
   } catch (err: any) {
+    console.error("[API] ❌ Invalid token:", err.message)
     return NextResponse.json(
-      { error: "Invalid token", detail: err.message },
-      { status: 401 }
+        { error: "Invalid token", detail: err.message },
+        { status: 401 }
     )
   }
 }
