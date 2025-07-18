@@ -25,7 +25,7 @@ export async function GET(request: Request) {
   const cleanToken = decodeURIComponent(token)
 
   try {
-    const decoded = jwt.verify(cleanToken, process.env.JWT_SECRET!) as {
+    const decoded = await jwt.verify(cleanToken, process.env.JWT_SECRET!) as {
       userId: string
       email: string
     }
