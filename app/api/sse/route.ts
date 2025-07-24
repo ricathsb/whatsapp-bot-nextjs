@@ -14,61 +14,69 @@ export async function GET(req: NextRequest) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
       }
 
-      // === Initial Chat History ===
-      send({
-        type: 'chat-history',
-        chatHistory: service.getAllChatHistory(),
-      })
-
-      // === Initial Status ===
-      send({
-        type: 'status',
-        ...service.getStatus(),
-        usersCount: service.getUsers().length,
-      })
-
-      // === Chat Update Listener ===
-      const onChatUpdate = ({ contact, phone, message }) => {
+      const setup = async () => {
+        // === Initial Chat History ===
         send({
-          type: 'chat-update',
-          contact,
-          phone,
-          message,
+          type: 'chat-history',
+          chatHistory: service.getAllChatHistory(),
         })
-      }
 
-      // === Status/Event Listeners ===
-      const emitStatus = () => {
+        // === Initial Status ===
+        const users = await service.getUsers()
         send({
           type: 'status',
           ...service.getStatus(),
-          usersCount: service.getUsers().length,
+          usersCount: users.length,
+        })
+
+        // === Chat Update Listener ===
+        const onChatUpdate = ({ contact, phone, message }) => {
+          send({
+            type: 'chat-update',
+            contact,
+            phone,
+            message,
+          })
+        }
+
+        // === Status/Event Listeners ===
+        const emitStatus = async () => {
+          const users = await service.getUsers()
+          send({
+            type: 'status',
+            ...service.getStatus(),
+            usersCount: users.length,
+          })
+        }
+
+        const onQR = (qrCode: string) => {
+          send({ type: 'qr', qrCode })
+        }
+
+        // Register all listeners
+        service.on('chat-update', onChatUpdate)
+        service.on('qr', onQR)
+        service.on('ready', emitStatus)
+        service.on('authenticated', emitStatus)
+        service.on('disconnected', emitStatus)
+        service.on('auth_failure', emitStatus)
+        service.on('users_bulk_updated', emitStatus)
+
+        // Cleanup on abort
+        req.signal.addEventListener('abort', () => {
+          service.off('chat-update', onChatUpdate)
+          service.off('qr', onQR)
+          service.off('ready', emitStatus)
+          service.off('authenticated', emitStatus)
+          service.off('disconnected', emitStatus)
+          service.off('auth_failure', emitStatus)
+          service.off('users_bulk_updated', emitStatus)
+          controller.close()
         })
       }
 
-      const onQR = (qrCode: string) => {
-        send({ type: 'qr', qrCode })
-      }
-
-      // Register all listeners
-      service.on('chat-update', onChatUpdate)
-      service.on('qr', onQR)
-      service.on('ready', emitStatus)
-      service.on('authenticated', emitStatus)
-      service.on('disconnected', emitStatus)
-      service.on('auth_failure', emitStatus)
-      service.on('users_bulk_updated', emitStatus)
-
-      // Cleanup on abort
-      req.signal.addEventListener('abort', () => {
-        service.off('chat-update', onChatUpdate)
-        service.off('qr', onQR)
-        service.off('ready', emitStatus)
-        service.off('authenticated', emitStatus)
-        service.off('disconnected', emitStatus)
-        service.off('auth_failure', emitStatus)
-        service.off('users_bulk_updated', emitStatus)
-        controller.close()
+      setup().catch((err) => {
+        controller.error(err)
       })
     }
   })

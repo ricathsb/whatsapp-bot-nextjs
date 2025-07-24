@@ -1,21 +1,18 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import qrcode from "qrcode"
-import { Client, type Message } from "whatsapp-web.js"
-import { existsSync, mkdirSync } from "fs"
+import { Client, LocalAuth, Message } from "whatsapp-web.js"
 import { EventEmitter } from "events"
+import { PrismaClient } from "@prisma/client"
+import qrcode from "qrcode"
+import type { BotStatus, ChatHistory, ChatMessage } from "./types/whatsapp"
 
-import type { BotStatus, ChatMessage } from "./types/whatsapp"
-import { UserManager } from "./user-manager"
-import { MessageHandler } from "./message-handler"
+const prisma = new PrismaClient()
 
 export class WhatsAppClient extends EventEmitter {
   private client: Client | null = null
-  private userManager: UserManager
-  private messageHandler: MessageHandler
   private isSendingMessages = false
   private reconnectAttempts = 0
   private readonly maxReconnectAttempts = 5
   private readonly reconnectDelay = 5000
+  private chatHistory: ChatHistory = {}
 
   private status: BotStatus = {
     isRunning: false,
@@ -26,97 +23,26 @@ export class WhatsAppClient extends EventEmitter {
 
   constructor() {
     super()
-    this.userManager = new UserManager()
-    this.messageHandler = new MessageHandler()
-
-    process.on("exit", async () => {
-      await this.cleanup()
-    })
+    process.on("exit", async () => await this.cleanup())
   }
 
-  getStatus(): BotStatus {
+  public getStatus(): BotStatus {
     return {
       ...this.status,
       lastActivity: new Date(),
     }
   }
 
-  addUser(name: string, phone: string) {
-    const newUser = this.userManager.addUser(name, phone)
-    this.emit("users_bulk_updated", { action: "added", user: newUser })
-    return newUser
+  public getAllChatHistory(): ChatHistory {
+    return this.chatHistory
   }
 
-  getUsers() {
-    return this.userManager.getUsers()
-  }
-
-  updateUser(id: string, updates: any) {
-    const updated = this.userManager.updateUser(id, updates)
-    this.emit("users_bulk_updated", { action: "updated", id, updates })
-    return updated
-  }
-
-  deleteUser(id: string) {
-    const deleted = this.userManager.deleteUser(id)
-    this.emit("users_bulk_updated", { action: "deleted", id })
-    return deleted
-  }
-
-  deactivateAllUsers() {
-    return this.userManager.deactivateAllUsers()
-  }
-
-  clearUsers() {
-    return this.userManager.clearUsers()
-  }
-
-  async loadUsersFromDatabase(token?: string) {
-    return this.userManager.loadUsersFromDatabase(token)
-  }
-
-  getUserManager() {
-    return this.userManager
-  }
-
-  async loadContacts(): Promise<number> {
-    const count = this.userManager.getUsers().length
-    this.status.contactsCount = count
-    this.logStatus()
-    return count
-  }
-
-  getContacts() {
-    return this.getUsers()
-  }
-
-  getChatHistory(phone: string) {
-    return this.messageHandler.getChatHistory(phone)
-  }
-
-  getAllChatHistory() {
-    return this.messageHandler.getAllChatHistory()
-  }
-
-  async start(token?: string): Promise<void> {
-    if (this.status.isRunning || this.client) {
-      console.log("[WhatsAppClient] Already running")
-      return
-    }
+  public async start(): Promise<void> {
+    if (this.status.isRunning || this.client) return
 
     try {
-      console.log("[WhatsAppClient] 🚀 Starting WhatsApp Bot Service...")
-
-      const activatedCount = await this.loadUsersFromDatabase(token)
-      console.log(`[WhatsAppClient] ✅ Loaded ${activatedCount} users from database`)
-
-      const contactCount = await this.loadContacts()
-      console.log(`[WhatsAppClient] ✅ Loaded ${contactCount} contacts`)
-
-      const userDataDir = "./chrome-profile"
-      if (!existsSync(userDataDir)) mkdirSync(userDataDir)
-
       this.client = new Client({
+        authStrategy: new LocalAuth({ dataPath: "./.wwebjs_auth" }),
         puppeteer: {
           headless: true,
           args: [
@@ -125,18 +51,16 @@ export class WhatsAppClient extends EventEmitter {
             "--disable-dev-shm-usage",
             "--disable-accelerated-2d-canvas",
             "--disable-gpu",
-            `--user-data-dir=${userDataDir}`,
           ],
         },
         restartOnAuthFail: true,
       })
 
       this.status.isRunning = true
-      this.status.error = undefined
       this.reconnectAttempts = 0
+      this.status.error = undefined
       this.logStatus()
 
-      // ✅ Emit status update to SSE
       this.emit("status_changed", {
         isRunning: true,
         isReady: false,
@@ -145,8 +69,6 @@ export class WhatsAppClient extends EventEmitter {
 
       this.setupEventHandlers()
       await this.client.initialize()
-
-      this.emit("users_bulk_updated", { action: "activated", count: activatedCount })
     } catch (error) {
       console.error("[WhatsAppClient] start() error:", error)
       this.status.error = error instanceof Error ? error.message : "Unknown error"
@@ -154,53 +76,31 @@ export class WhatsAppClient extends EventEmitter {
     }
   }
 
-  async stop(): Promise<void> {
-    console.log("[WhatsAppClient] 🛑 Stopping WhatsApp Bot Service...")
-
-    const deactivatedCount = this.userManager.deactivateAllUsers()
-    console.log(`[WhatsAppClient] ✅ ${deactivatedCount} users deactivated`)
-
-    this.emit("users_bulk_updated", { action: "deactivated", count: deactivatedCount })
-
-    await this.cleanup()
-
-    // ✅ Emit to SSE
-    this.emit("status_changed", {
-      isRunning: false,
-      isReady: false,
-      message: "Bot has been stopped.",
-    })
-  }
-
   private setupEventHandlers() {
     if (!this.client) return
 
     this.client.on("qr", async (qr: string) => {
-      console.log("[WhatsAppClient] 🟡 QR Code received")
       try {
-        this.status.qrCode = await qrcode.toDataURL(qr)
-        this.emit("qr", this.status.qrCode)
-        this.logStatus()
-      } catch (error) {
-        console.error("[WhatsAppClient] QR code generation error:", error)
+        const qrCode = await qrcode.toDataURL(qr)
+        this.status.qrCode = qrCode
+        this.emit("qr", qrCode)
+        console.log("[WhatsAppClient] QR Code generated.")
+      } catch (err) {
+        console.error("[QR Error]", err)
       }
     })
 
     this.client.on("authenticated", () => {
-      console.log("[WhatsAppClient] ✅ Authenticated")
       this.reconnectAttempts = 0
+      console.log("[WhatsAppClient] ✅ Authenticated.")
       this.emit("authenticated")
     })
 
-    this.client.on("ready", () => {
-      console.log("[WhatsAppClient] ✅ Client ready")
+    this.client.on("ready", async () => {
       this.status.isReady = true
       this.status.qrCode = undefined
-      this.status.error = undefined
-      this.emit("ready")
-      this.logStatus()
-
-      // ✅ Emit ready status
+      this.status.contactsCount = await prisma.nasabah.count({ where: { isSended: false } })
+      console.log("[WhatsAppClient] ✅ Ready.")
       this.emit("status_changed", {
         isRunning: true,
         isReady: true,
@@ -208,13 +108,29 @@ export class WhatsAppClient extends EventEmitter {
       })
     })
 
+    this.client.on("message", async (msg: Message) => {
+      const phone = msg.from.replace(/@c\.us$/, "")
+      if (!msg.fromMe) {
+        const chatMsg: ChatMessage = {
+          from: phone,
+          content: msg.body,
+          timestamp: new Date(),
+          isIncoming: true,
+        }
+
+        if (!this.chatHistory[phone]) this.chatHistory[phone] = []
+        this.chatHistory[phone].push(chatMsg)
+        console.log(`[WhatsAppClient] 💬 Message from ${phone}: ${msg.body}`)
+        this.emit("message", chatMsg)
+      }
+    })
+
     this.client.on("disconnected", async (reason: string) => {
-      console.log(`[WhatsAppClient] ❌ Disconnected: ${reason}`)
+      console.warn("[WhatsAppClient] 🔌 Disconnected:", reason)
       this.emit("disconnected", reason)
 
       if (reason !== "LOGOUT" && this.reconnectAttempts < this.maxReconnectAttempts) {
         this.reconnectAttempts++
-        console.log(`[WhatsAppClient] 🔁 Reconnecting (${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
         await this.delay(this.reconnectDelay)
         await this.cleanRestart()
       } else {
@@ -223,96 +139,98 @@ export class WhatsAppClient extends EventEmitter {
     })
 
     this.client.on("auth_failure", (msg) => {
-      console.error("[WhatsAppClient] ❌ Authentication failure:", msg)
       this.status.error = "Authentication failed"
+      console.error("[WhatsAppClient] ❌ Auth Failure:", msg)
       this.emit("auth_failure", msg)
       this.cleanup()
     })
+  }
 
-    this.client.on("message", async (msg: Message) => {
-      await this.handleIncomingMessage(msg)
+  public async sendBulkMessages(text: string): Promise<void> {
+    if (!this.status.isReady || !this.client) {
+      console.warn("[sendBulkMessages] Client not ready or not initialized.")
+      return
+    }
+
+    if (this.isSendingMessages) {
+      console.warn("[sendBulkMessages] Already sending messages.")
+      return
+    }
+
+    this.isSendingMessages = true
+
+    try {
+      const users = await prisma.nasabah.findMany({ where: { isSended: false } })
+      this.status.contactsCount = users.length
+
+      for (const [i, user] of users.entries()) {
+        const phone = this.formatPhone(user.no_hp)
+
+        try {
+          const isRegistered = await this.client.isRegisteredUser(phone)
+          if (!isRegistered) {
+            console.warn(`⚠️ ${phone} is not a registered WhatsApp user`)
+            continue
+          }
+
+          await this.client.sendMessage(phone, text)
+
+          await prisma.nasabah.update({
+            where: { id: user.id },
+            data: { isSended: true },
+          })
+
+          this.status.messagesSent++
+          console.log(`✅ Sent to ${user.nama} (${user.no_hp})`)
+
+          const chatMsg: ChatMessage = {
+            from: phone,
+            content: text,
+            timestamp: new Date(),
+            isIncoming: false,
+          }
+
+          if (!this.chatHistory[phone]) this.chatHistory[phone] = []
+          this.chatHistory[phone].push(chatMsg)
+
+        } catch (error) {
+          console.error(`❌ Failed to send to ${user.nama} (${user.no_hp}):`, error)
+        }
+
+        if (i < users.length - 1) {
+          await this.delay(this.randomDelay(2500, 5000))
+        }
+      }
+
+      console.log(`[sendBulkMessages] Done. Sent ${this.status.messagesSent} messages.`)
+    } finally {
+      this.isSendingMessages = false
+      this.logStatus()
+    }
+  }
+
+  private formatPhone(phone: string): string {
+    let normalized = phone.replace(/\D/g, "")
+    if (normalized.startsWith("0")) normalized = "62" + normalized.slice(1)
+    return normalized + "@c.us"
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
+  }
+
+  public async stop(): Promise<void> {
+    await this.cleanup()
+    this.emit("status_changed", {
+      isRunning: false,
+      isReady: false,
+      message: "Bot has been stopped.",
     })
   }
 
-  private async handleIncomingMessage(msg: Message) {
-    if (msg.fromMe) return
-
+  private async cleanup(): Promise<void> {
     try {
-      const phone = msg.from.split("@")[0]
-      const users = this.userManager.getUsers()
-      const contact = users.find((u) => u.phone === phone)
-
-      if (!contact) {
-        console.log(`[WhatsAppClient] 🚫 Message from unknown number: ${phone} - Ignored`)
-        return
-      }
-
-      const message: ChatMessage = {
-        from: msg.from,
-        content: msg.body,
-        timestamp: new Date(),
-        isIncoming: true,
-      }
-
-      this.messageHandler.addMessage(phone, message)
-      console.log(`[WhatsAppClient] 💬 Message from ${contact.name} (${phone}): ${msg.body}`)
-
-      this.emit("chat-update", { contact, message, phone })
-
-      if (!contact.isActive) {
-        console.log(`[WhatsAppClient] ⚠️ Auto-reply disabled for ${contact.name} (${phone})`)
-        return
-      }
-
-      const replyContent = await this.messageHandler.generateReply(msg.body, contact.name)
-      if (replyContent) {
-        await this.sendReply(msg.from, replyContent)
-
-        const botMessage: ChatMessage = {
-          from: msg.to,
-          content: replyContent,
-          timestamp: new Date(),
-          isIncoming: false,
-        }
-
-        this.messageHandler.addMessage(phone, botMessage)
-        this.emit("chat-update", { contact, message: botMessage, phone })
-      }
-    } catch (error) {
-      console.error("[WhatsAppClient] Error processing message:", error)
-    }
-  }
-
-  async sendReply(to: string, message: string): Promise<boolean> {
-    if (!this.status.isReady || !this.client) return false
-
-    try {
-      await this.client.sendMessage(to, message)
-
-      const phone = to.split("@")[0]
-      this.messageHandler.addMessage(phone, {
-        from: to,
-        content: message,
-        timestamp: new Date(),
-        isIncoming: false,
-      })
-
-      console.log(`[WhatsAppClient] 📤 Reply sent to ${phone}`)
-      this.emit("reply_sent", { to, message })
-      return true
-    } catch (error) {
-      console.error(`[WhatsAppClient] Failed to send reply to ${to}:`, error)
-      return false
-    }
-  }
-
-  async cleanup() {
-    console.log("[WhatsAppClient] Cleaning up resources...")
-    try {
-      if (this.client) {
-        await this.client.destroy()
-        console.log("[WhatsAppClient] Client destroyed successfully")
-      }
+      if (this.client) await this.client.destroy()
     } catch (error) {
       console.error("[WhatsAppClient] Cleanup error:", error)
     } finally {
@@ -320,95 +238,42 @@ export class WhatsAppClient extends EventEmitter {
       this.status.isRunning = false
       this.status.isReady = false
       this.logStatus()
-
-      // ✅ Emit cleanup status
-      this.emit("status_changed", {
-        isRunning: false,
-        isReady: false,
-        message: "Bot cleaned up and stopped.",
-      })
     }
   }
 
-  async cleanRestart(): Promise<void> {
+  private async cleanRestart(): Promise<void> {
     await this.cleanup()
     await this.start()
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
-  }
-
-  private logStatus(): void {
-    console.log("[WhatsAppClient] Status:", JSON.stringify(this.status, null, 2))
-  }
-
-  async sendBulkMessages(message: string): Promise<void> {
-    console.log("[sendBulkMessages] 📩 Starting bulk message send...")
-
-    if (!this.status.isReady || !this.client) {
-      console.warn("[sendBulkMessages] ❌ WhatsApp client not ready.")
-      return
-    }
-
-    if (this.isSendingMessages) {
-      console.warn("[sendBulkMessages] ⚠️ Bulk message already in progress, skipping.")
-      return
-    }
-
-    this.isSendingMessages = true
-
-    try {
-      const users = this.userManager.getUsers()
-
-      if (users.length === 0) {
-        console.warn("[sendBulkMessages] ⚠️ No users to send message to.")
-        return
-      }
-
-      console.log(`[sendBulkMessages] ✅ Sending to ${users.length} users...`)
-
-      let successCount = 0
-
-      for (const [i, user] of users.entries()) {
-        const phone = user.phone.replace(/\D/g, "") + "@c.us"
-        console.log(`[${i + 1}/${users.length}] ▶️ Sending to ${user.name} (${phone})`)
-
-        try {
-          await this.client.sendMessage(phone, message)
-          console.log(`  📤 Sent successfully.`)
-
-          this.messageHandler.addMessage(user.phone, {
-            from: phone,
-            content: message,
-            timestamp: new Date(),
-            isIncoming: false,
-          })
-
-          this.status.messagesSent++
-          successCount++
-        } catch (error) {
-          console.error(`  ❌ Failed to send to ${user.name} (${user.phone})`, error)
-        }
-
-        if (i < users.length - 1) {
-          const delayMs = this.randomDelay(5000, 10000)
-          console.log(`  ⏳ Waiting ${delayMs}ms before next...`)
-          await this.wait(delayMs)
-        }
-      }
-
-      console.log(`[sendBulkMessages] ✅ Done. Sent to ${successCount}/${users.length} users.`)
-    } finally {
-      this.isSendingMessages = false
-    }
   }
 
   private randomDelay(minMs: number, maxMs: number): number {
     return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs
   }
 
-  private wait(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
+  private logStatus(): void {
+    console.log("[WhatsAppClient] Status:", JSON.stringify(this.status, null, 2))
   }
+
+  public async getUsers() {
+    return prisma.nasabah.findMany()
+  }
+
+  public async reloadUsers(): Promise<void> {
+    try {
+      const users = await prisma.nasabah.findMany({
+        orderBy: { id: "desc" },
+      })
+
+      // Update jumlah user belum terkirim
+      this.status.contactsCount = users.filter((u) => !u.isSended).length
+
+      // Bisa juga emit event ke frontend jika perlu
+      this.emit("users_reloaded", users)
+
+      console.log(`[WhatsAppClient] 🔄 Reloaded ${users.length} users from DB`)
+    } catch (error) {
+      console.error("[WhatsAppClient] Failed to reload users:", error)
+    }
+  }
+
 }

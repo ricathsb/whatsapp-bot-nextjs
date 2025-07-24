@@ -1,23 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { WhatsAppService } from "@/lib/whatsapp-service"
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   try {
-    // Ambil token dari cookie
-    const cookieHeader = request.headers.get("cookie")
-    const token = cookieHeader
-      ?.split(";")
-      .find((c) => c.trim().startsWith("auth-token="))
-      ?.split("=")[1]
-
-    if (!token) {
-      return NextResponse.json({ success: false, error: "Unauthorized: No token" }, { status: 401 })
-    }
-
-    const cleanToken = decodeURIComponent(token)
-
     const service = WhatsAppService.getInstance()
-    await service.startWithToken(cleanToken)
+    await service.start()
 
     return NextResponse.json({ success: true })
   } catch (error) {

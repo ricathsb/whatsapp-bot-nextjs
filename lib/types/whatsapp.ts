@@ -1,14 +1,10 @@
 // ===== TYPES & INTERFACES =====
 
-export interface ChatMessage {
-    from: string
-    content: string
-    timestamp: Date
-    isIncoming: boolean
-}
-
-export interface ChatHistory {
-    [phone: string]: ChatMessage[]
+export interface Nasabah {
+    id: string
+    nama: string
+    no_hp: string
+    isSended: boolean
 }
 
 export interface BotStatus {
@@ -21,13 +17,15 @@ export interface BotStatus {
     lastActivity?: Date
 }
 
-export interface User {
-    id: string
-    name: string
-    phone: string
-    isActive: boolean
-    createdAt: Date
-    lastActivity?: Date
+export interface ChatMessage {
+    from: string
+    content: string
+    timestamp: Date
+    isIncoming: boolean
+}
+
+export interface ChatHistory {
+    [phone: string]: ChatMessage[]
 }
 
 export interface CSVParseResult {

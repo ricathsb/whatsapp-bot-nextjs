@@ -7,30 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String    @id @default(cuid())
-  email     String    @unique
-  name      String
-  password  String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  nasabah   nasabah[]
-
-  @@map("users")
-}
-
 model nasabah {
-  id               String    @id @default(cuid())
-  nama             String
-  no_hp            String
-  status           String
-  status_langganan String
-  nik              String    @unique
-  no_kpj           String    @unique
-  updatedAt        DateTime
-  userId           String
-  isActive         Boolean   @default(true)
-  isSended         Boolean   @default(true)
-  verifiedAt       DateTime?
-  users            User      @relation(fields: [userId], references: [id])
+  id       String  @id @default(cuid())
+  nama     String
+  no_hp    String
+  isSended Boolean @default(false)
 }
