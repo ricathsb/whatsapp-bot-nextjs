@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
 
@@ -10,7 +11,6 @@ export async function PUT(
     const body = await request.json()
 
     const { isSended, name, phone } = body
-
     const dataToUpdate: any = {}
 
     if (typeof isSended !== "undefined") {

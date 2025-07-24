@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { WhatsAppService } from "@/lib/whatsapp-service"
 
 export async function POST() {
