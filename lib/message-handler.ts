@@ -23,7 +23,7 @@ export class MessageHandler {
         try {
             console.log(`[MessageHandler] Generating AI reply for ${contactName}`)
 
-            const response = await fetch("https://dyna-99-bot-wa-blast.hf.space/chat", {
+            const response = await fetch("https://zepero-wa-blasting.hf.space/chat", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

@@ -41,6 +41,13 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* Custom BPJS colors */
+  --color-bpjs-blue: oklch(0.488 0.243 264.376);
+  --color-bpjs-blue-dark: oklch(0.388 0.243 264.376);
+  --color-bpjs-blue-light: oklch(0.588 0.243 264.376);
+  --color-bpjs-gradient-start: oklch(0.488 0.243 264.376);
+  --color-bpjs-gradient-end: oklch(0.288 0.243 264.376);
 }
 
 :root {
@@ -76,6 +83,13 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* BPJS specific colors for light mode */
+  --bpjs-blue: oklch(0.488 0.243 264.376);
+  --bpjs-blue-dark: oklch(0.388 0.243 264.376);
+  --bpjs-blue-light: oklch(0.588 0.243 264.376);
+  --bpjs-gradient-start: oklch(0.488 0.243 264.376);
+  --bpjs-gradient-end: oklch(0.288 0.243 264.376);
 }
 
 .dark {
@@ -110,13 +124,154 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* BPJS specific colors for dark mode */
+  --bpjs-blue: oklch(0.588 0.243 264.376);
+  --bpjs-blue-dark: oklch(0.488 0.243 264.376);
+  --bpjs-blue-light: oklch(0.688 0.243 264.376);
+  --bpjs-gradient-start: oklch(0.588 0.243 264.376);
+  --bpjs-gradient-end: oklch(0.388 0.243 264.376);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Custom BPJS utility classes */
+@layer utilities {
+  .bg-bpjs-gradient {
+    background: linear-gradient(135deg, var(--bpjs-gradient-start), var(--bpjs-gradient-end));
+  }
+
+  .text-bpjs-blue {
+    color: var(--bpjs-blue);
+  }
+
+  .bg-bpjs-blue {
+    background-color: var(--bpjs-blue);
+  }
+
+  .border-bpjs-blue {
+    border-color: var(--bpjs-blue);
+  }
+
+  .hover\:bg-bpjs-blue-dark:hover {
+    background-color: var(--bpjs-blue-dark);
+  }
+
+  .focus\:ring-bpjs-blue:focus {
+    --tw-ring-color: var(--bpjs-blue);
+  }
+
+  .focus\:border-bpjs-blue:focus {
+    border-color: var(--bpjs-blue);
+  }
+}
+
+/* Custom animations for page transitions */
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(100px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-100px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    box-shadow: 0 0 5px var(--bpjs-blue);
+  }
+
+  50% {
+    box-shadow: 0 0 20px var(--bpjs-blue), 0 0 30px var(--bpjs-blue);
+  }
+}
+
+.slide-in-right {
+  animation: slideInRight 0.6s ease-out;
+}
+
+.slide-in-left {
+  animation: slideInLeft 0.6s ease-out;
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Grid pattern for background */
+.bg-grid-pattern {
+  background-image: linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: oklch(0.97 0 0);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--bpjs-blue);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--bpjs-blue-dark);
+}
+
+/* Glass morphism effect */
+.glass-morphism {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.dark .glass-morphism {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }

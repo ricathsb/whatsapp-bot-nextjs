@@ -1,7 +1,6 @@
 // ===== MAIN SERVICE (SINGLETON) =====
 import { WhatsAppClient } from "./whatsapp-client"
 
-// Declare global type
 declare global {
   var whatsappService: WhatsAppService | undefined
 }
@@ -14,25 +13,30 @@ export class WhatsAppService extends WhatsAppClient {
   }
 
   static getInstance(): WhatsAppService {
-    // Use globalThis for development (hot reload)
     if (process.env.NODE_ENV === "development") {
       if (!globalThis.whatsappService) {
-        globalThis.whatsappService = new WhatsAppService()
+        const instance = new WhatsAppService()
+        globalThis.whatsappService = instance
         console.log("[WhatsAppService] Created new instance in development mode")
+        return instance
       }
       return globalThis.whatsappService
     }
 
-    // For production, use regular singleton
     if (!WhatsAppService.instance) {
       WhatsAppService.instance = new WhatsAppService()
       console.log("[WhatsAppService] Created new instance in production mode")
     }
+
     return WhatsAppService.instance
   }
-}
 
-// Initialize global instance handler
+  // ✅ Jalankan dengan token
+  startWithToken(token: string): Promise<void> {
+    return this.start(token)
+  }
+  }
+
 if (process.env.NODE_ENV === "development") {
   if (!globalThis.whatsappService) {
     globalThis.whatsappService = WhatsAppService.getInstance()
@@ -40,5 +44,4 @@ if (process.env.NODE_ENV === "development") {
   }
 }
 
-// Export default instance
 export default WhatsAppService.getInstance()

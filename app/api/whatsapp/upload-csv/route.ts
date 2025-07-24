@@ -1,43 +1,88 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { WhatsAppService } from "@/lib/whatsapp-service"
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { NextRequest, NextResponse } from "next/server"
+import { PrismaClient } from "@prisma/client"
+import { parse } from "csv-parse/sync"
+import jwt from "jsonwebtoken"
+
+const prisma = new PrismaClient()
+const JWT_SECRET = process.env.JWT_SECRET!
 
 export async function POST(request: NextRequest) {
   try {
+    // ✅ Ambil token dari cookie
+    const cookieHeader = request.headers.get("cookie")
+    const token = cookieHeader
+      ?.split(";")
+      .find((c) => c.trim().startsWith("auth-token="))
+      ?.split("=")[1]
+
+    if (!token) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+
+    let decoded
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
+    } catch (err) {
+      return NextResponse.json({ success: false, error: "Invalid token" }, { status: 401 })
+    }
+
+    const userId = decoded.userId
+    const user = await prisma.user.findUnique({ where: { id: userId } })
+    if (!user) {
+      return NextResponse.json({ success: false, error: "User not found" }, { status: 401 })
+    }
+
     const formData = await request.formData()
     const file = formData.get("csv") as File
-
     if (!file) {
       return NextResponse.json({ success: false, error: "No file provided" })
     }
 
     const text = await file.text()
-    const service = WhatsAppService.getInstance()
+    const records = parse(text, { columns: true, skip_empty_lines: true, trim: true })
 
-    console.log("[API] ===== CSV UPLOAD STARTED =====")
+    let inserted = 0
+    for (const record of records) {
+      const { nama, no_hp, nik, no_kpj } = record
+      if (!nik || !no_kpj) continue
 
-    // Load contacts for messaging (akan terakumulasi, tidak di-clear)
-    const newContactsCount = await service.loadContacts(text)
+          await prisma.nasabah.upsert({
+      where: { nik },
+      update: {
+        nama,
+        no_hp,
+        status: "verified",
+        status_langganan: "invalid",
+        no_kpj,
+        userId,
+        isActive: true,
+        verifiedAt: new Date(),     // ← tambahkan ini
+        updatedAt: new Date(),
+      },
+      create: {
+        id: crypto.randomUUID(),
+        nama,
+        no_hp,
+        status: "verified",
+        status_langganan: "invalid",
+        nik,
+        no_kpj,
+        userId,
+        isActive: true,
+        verifiedAt: new Date(),     // ← tambahkan ini
+        updatedAt: new Date(),
+      },
+    })
 
-    // Also load users for user management (sudah terakumulasi)
-    const newUsersCount = await service.loadUsersFromCSV(text)
 
-    // Get total counts after import
-    const totalContactsCount = service.getContacts().length
-    const totalUsersCount = service.getUsers().length
-
-    console.log("[API] ===== CSV UPLOAD SUMMARY =====")
-    console.log(`[API] New contacts added: ${newContactsCount}`)
-    console.log(`[API] New users added: ${newUsersCount}`)
-    console.log(`[API] Total contacts: ${totalContactsCount}`)
-    console.log(`[API] Total users: ${totalUsersCount}`)
+      inserted++
+    }
 
     return NextResponse.json({
       success: true,
-      contactsCount: newContactsCount, // Contacts baru yang ditambahkan
-      usersCount: newUsersCount, // Users baru yang ditambahkan
-      totalContactsCount, // Total contacts di sistem
-      totalUsersCount, // Total users di sistem
-      message: `Added ${newContactsCount} new contacts and ${newUsersCount} new users. Total: ${totalContactsCount} contacts, ${totalUsersCount} users`,
+      inserted,
+      message: `${inserted} nasabah berhasil ditambahkan atau diperbarui.`,
     })
   } catch (error) {
     console.error("Failed to upload CSV:", error)
