@@ -31,7 +31,13 @@ export default function WhatsAppBot() {
         messagesSent: 0,
     })
     const [message, setMessage] = useState(
-        "Halo {name}, kami perhatikan status kepesertaan BPJS Ketenagakerjaan Anda sedang tidak aktif..."
+        "Halo {name},\n" +
+        "Universitas Terbuka (UT) kini membuka pendaftaran melalui platform SalutSoul.\n" +
+        "\n" +
+        "Dapatkan kemudahan akses layanan dan informasi terkini.\n" +
+        "\n" +
+        "Daftar sekarang di:\n" +
+        "👉 salutsoul.com/pendaftaran"
     )
     const [csvFile, setCsvFile] = useState<File | null>(null)
     const [logs, setLogs] = useState<string[]>([])

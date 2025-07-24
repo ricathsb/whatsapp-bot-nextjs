@@ -175,7 +175,8 @@ export class WhatsAppClient extends EventEmitter {
             continue
           }
 
-          await this.client.sendMessage(phone, text)
+          const personalizedText = text.replace(/\{name\}/gi, user.nama)
+          await this.client.sendMessage(phone, personalizedText)
 
           await prisma.nasabah.update({
             where: { id: user.id },
@@ -187,7 +188,7 @@ export class WhatsAppClient extends EventEmitter {
 
           const chatMsg: ChatMessage = {
             from: phone,
-            content: text,
+            content: personalizedText,
             timestamp: new Date(),
             isIncoming: false,
           }
@@ -203,6 +204,7 @@ export class WhatsAppClient extends EventEmitter {
           await this.delay(this.randomDelay(2500, 5000))
         }
       }
+
 
       console.log(`[sendBulkMessages] Done. Sent ${this.status.messagesSent} messages.`)
     } finally {
