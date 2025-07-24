@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch" // Import Switch component
 import { Plus, Edit, Trash2, RefreshCw, AlertCircle } from "lucide-react"
 
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ""
 interface UserManagementUser {
   id: string // Changed to string based on your JSON example
   name: string
@@ -59,7 +60,7 @@ export function UserManagement() {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch("/api/users")
+      const response = await fetch(`${basePath}/api/users`)
       const data = await response.json()
       if (data.success) {
         setUsers(data.users || [])
@@ -82,15 +83,14 @@ export function UserManagement() {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch("/api/users", {
+      const response = await fetch(`${basePath}/api/users`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       })
       const data = await response.json()
       if (data.success) {
-        // Assuming new user is returned with isSended: false by default
-        setUsers([...users, { ...data.user, isSended: false }])
+        await fetchUsers() // ambil ulang data agar valid
         setFormData({ name: "", phone: "" })
         setIsAddDialogOpen(false)
       } else {
@@ -113,7 +113,7 @@ export function UserManagement() {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch(`/api/users/${editingUser.id}`, {
+      const response = await fetch(`${basePath}/api/users/${editingUser.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
@@ -140,7 +140,7 @@ export function UserManagement() {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch(`/api/users/${id}`, {
+      const response = await fetch(`${basePath}/api/users/${id}`, {
         method: "DELETE",
       })
       const data = await response.json()
@@ -162,7 +162,7 @@ export function UserManagement() {
     setError(null)
     try {
       const newStatus = !currentStatus
-      const response = await fetch(`/api/users/${id}`, {
+      const response = await fetch(`${basePath}/api/users/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isSended: newStatus }),

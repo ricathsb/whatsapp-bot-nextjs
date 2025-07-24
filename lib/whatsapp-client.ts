@@ -13,6 +13,8 @@ export class WhatsAppClient extends EventEmitter {
   private readonly maxReconnectAttempts = 5
   private readonly reconnectDelay = 5000
   private chatHistory: ChatHistory = {}
+  private reloadInterval: NodeJS.Timeout | null = null; // ✅ Tambahkan ini
+
 
   private status: BotStatus = {
     isRunning: false,
@@ -275,5 +277,24 @@ export class WhatsAppClient extends EventEmitter {
       console.error("[WhatsAppClient] Failed to reload users:", error)
     }
   }
+
+  public startReloadInterval(ms = 60000) {
+    this.reloadInterval = setInterval(() => {
+      if (this.status.isReady) {
+        this.reloadUsers()
+      }
+    }, ms)
+
+    console.log("[WhatsAppClient] 🔁 Auto-reload users every", ms / 1000, "seconds")
+  }
+
+  public stopReloadInterval() {
+    if (this.reloadInterval) {
+      clearInterval(this.reloadInterval)
+      this.reloadInterval = null
+      console.log("[WhatsAppClient] 🛑 Auto-reload stopped")
+    }
+  }
+
 
 }

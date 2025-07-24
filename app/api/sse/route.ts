@@ -61,6 +61,8 @@ export async function GET(req: NextRequest) {
         service.on('disconnected', emitStatus)
         service.on('auth_failure', emitStatus)
         service.on('users_bulk_updated', emitStatus)
+        service.on("status_changed", emitStatus)        // ✅ Tambah ini
+        service.on("users_reloaded", emitStatus)        // ✅ Tambah ini
 
         // Cleanup on abort
         req.signal.addEventListener('abort', () => {

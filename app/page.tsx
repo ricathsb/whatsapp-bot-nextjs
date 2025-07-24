@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { MessageCircle, Users, Send, Upload, Trash2, RefreshCw } from "lucide-react"
 import { UserManagement } from "@/components/user-management"
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ""
 
 interface BotStatus {
     isRunning: boolean
@@ -36,7 +37,7 @@ export default function WhatsAppBot() {
     const [logs, setLogs] = useState<string[]>([])
 
     useEffect(() => {
-        const eventSource = new EventSource("/api/sse")
+        const eventSource = new EventSource(`${basePath}/api/sse/`)
         eventSource.onmessage = (event) => {
             const payload = JSON.parse(event.data)
             if (payload.type === "status") {
@@ -65,10 +66,11 @@ export default function WhatsAppBot() {
             eventSource.close()
         }
     }, [])
-
+    const [isStarting, setIsStarting] = useState(false)
     const startBot = async () => {
+        setIsStarting(true)
         try {
-            const response = await fetch("/api/whatsapp/start", {
+            const response = await fetch(`${basePath}/api/whatsapp/start`, {
                 method: "POST",
             })
             const data = await response.json()
@@ -80,27 +82,39 @@ export default function WhatsAppBot() {
             }
         } catch (error) {
             setLogs((prev) => [...prev, `Failed to start bot: ${error}`])
+        } finally {
+            setIsStarting(false)
         }
     }
 
+    const [isStopping, setIsStopping] = useState(false)
+
     const stopBot = async () => {
+        setIsStopping(true) // ⏳ Mulai loading
         try {
-            const response = await fetch("/api/whatsapp/stop", {
+            const response = await fetch(`${basePath}/api/whatsapp/stop`, {
                 method: "POST",
             })
             const data = await response.json()
             if (data.success) {
-                setLogs((prev) => [...prev, "Bot stopped successfully", "🔴 All users have been automatically deactivated"])
+                setLogs((prev) => [
+                    ...prev,
+                    "Bot stopped successfully",
+                    "🔴 All users have been automatically deactivated",
+                ])
                 window.dispatchEvent(new CustomEvent("bulkUserUpdate"))
             }
         } catch (error) {
             setLogs((prev) => [...prev, `Failed to stop bot: ${error}`])
+        } finally {
+            setIsStopping(false) // ✅ Selesai loading
         }
     }
 
+
     const reloadBotData = async () => {
         try {
-            const response = await fetch("/api/whatsapp/reload-bot-data", {
+            const response = await fetch(`${basePath}/api/whatsapp/reload-bot-data`, {
                 method: "POST",
             })
             const data = await response.json()
@@ -122,7 +136,7 @@ export default function WhatsAppBot() {
         formData.append("csv", csvFile)
 
         try {
-            const response = await fetch("/api/whatsapp/upload-csv", {
+            const response = await fetch(`${basePath}/api/whatsapp/upload-csv`, {
                 method: "POST",
                 body: formData,
                 credentials: "include",
@@ -151,7 +165,7 @@ export default function WhatsAppBot() {
         if (!confirm("Are you sure you want to clear ALL contacts? This will remove all contacts for messaging.")) return
 
         try {
-            const response = await fetch("/api/whatsapp/clear-contacts", {
+            const response = await fetch(`${basePath}/api/whatsapp/upload-csv`, {
                 method: "POST",
             })
             const data = await response.json()
@@ -165,28 +179,9 @@ export default function WhatsAppBot() {
         }
     }
 
-    const clearUsers = async () => {
-        if (!confirm("Are you sure you want to clear ALL users? This will remove all users from management table.")) return
-
-        try {
-            const response = await fetch("/api/whatsapp/clear-users", {
-                method: "POST",
-            })
-            const data = await response.json()
-            if (data.success) {
-                setLogs((prev) => [...prev, "🗑️ All users cleared successfully"])
-                window.dispatchEvent(new CustomEvent("refreshUsers"))
-            } else {
-                setLogs((prev) => [...prev, `Clear users failed: ${data.error}`])
-            }
-        } catch (error) {
-            setLogs((prev) => [...prev, `Clear users error: ${error}`])
-        }
-    }
-
     const sendMessages = async () => {
         try {
-            const response = await fetch("/api/whatsapp/send-messages", {
+            const response = await fetch(`${basePath}/api/whatsapp/send-messages`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -259,12 +254,13 @@ export default function WhatsAppBot() {
                     </CardHeader>
                     <CardContent className="space-y-2">
                         {!status.isRunning ? (
-                            <Button onClick={startBot} className="w-full">
-                                🚀 Start Bot + Activate All Users
+                            <Button onClick={startBot} className="w-full" disabled={isStarting}>
+                                {isStarting ? "⏳ Starting..." : "Start Bot"}
                             </Button>
+
                         ) : (
-                            <Button onClick={stopBot} variant="destructive" className="w-full">
-                                🛑 Stop Bot + Deactivate All Users
+                            <Button onClick={stopBot} className="w-full"  disabled={isStopping}>
+                                {isStopping ? "Stopping..." : "Stop Bot"}
                             </Button>
                         )}
                         <Button onClick={reloadBotData} variant="outline" className="w-full">
@@ -310,9 +306,6 @@ export default function WhatsAppBot() {
                     <div className="flex gap-2 pt-2 border-t">
                         <Button onClick={clearContacts} variant="outline" size="sm">
                             <Trash2 className="h-4 w-4 mr-2" /> Clear All Contacts
-                        </Button>
-                        <Button onClick={clearUsers} variant="outline" size="sm">
-                            <Trash2 className="h-4 w-4 mr-2" /> Clear All Users
                         </Button>
                     </div>
                 </CardContent>

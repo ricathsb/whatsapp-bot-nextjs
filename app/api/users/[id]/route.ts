@@ -60,3 +60,27 @@ export async function PUT(
     )
   }
 }
+
+export async function DELETE(
+    request: Request,
+    context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await context.params
+
+    await prisma.nasabah.delete({
+      where: { id },
+    })
+
+    return NextResponse.json({
+      success: true,
+      message: `User with ID ${id} deleted successfully`,
+    })
+  } catch (error) {
+    console.error("Error deleting user:", error)
+    return NextResponse.json(
+        { success: false, error: "Failed to delete user" },
+        { status: 500 }
+    )
+  }
+}
