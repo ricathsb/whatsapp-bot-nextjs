@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
       const service = WhatsAppService.getInstance()
 
       const send = (payload: any) => {
+        console.log("[SSE SEND]", payload.type, payload)
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
       }
 
@@ -22,30 +23,22 @@ export async function GET(req: NextRequest) {
         })
 
         // === Initial Status ===
-        const users = await service.getUsers()
-        send({
-          type: 'status',
-          ...service.getStatus(),
-          usersCount: users.length,
-        })
-
-        // === Chat Update Listener ===
-        const onChatUpdate = ({ contact, phone, message }) => {
-          send({
-            type: 'chat-update',
-            contact,
-            phone,
-            message,
-          })
-        }
-
-        // === Status/Event Listeners ===
-        const emitStatus = async () => {
+        try {
           const users = await service.getUsers()
           send({
             type: 'status',
             ...service.getStatus(),
             usersCount: users.length,
+          })
+        } catch (err) {
+          console.error("[SSE] Failed to get initial users:", err)
+        }
+
+        // === Event Handlers ===
+        const onChatUpdate = (data: { contact: any; phone: string; message: string }) => {
+          send({
+            type: 'chat-update',
+            ...data,
           })
         }
 
@@ -53,34 +46,58 @@ export async function GET(req: NextRequest) {
           send({ type: 'qr', qrCode })
         }
 
-        // Register all listeners
+        const emitStatus = () => {
+          service.getUsers()
+              .then((users) => {
+                send({
+                  type: 'status',
+                  ...service.getStatus(),
+                  usersCount: users.length,
+                })
+              })
+              .catch((err) => {
+                console.error("[SSE] Failed to emit status:", err)
+              })
+        }
+
+        const onDisconnected = (payload: { reason: string; message: string }) => {
+          send({
+            type: 'disconnected',
+            ...payload,
+          })
+        }
+
+        // === Register Listeners ===
         service.on('chat-update', onChatUpdate)
         service.on('qr', onQR)
         service.on('ready', emitStatus)
         service.on('authenticated', emitStatus)
-        service.on('disconnected', emitStatus)
+        service.on('disconnected', onDisconnected)
         service.on('auth_failure', emitStatus)
         service.on('users_bulk_updated', emitStatus)
-        service.on("status_changed", emitStatus)        // ✅ Tambah ini
-        service.on("users_reloaded", emitStatus)        // ✅ Tambah ini
+        service.on('status_changed', emitStatus)
+        service.on('users_reloaded', emitStatus)
 
-        // Cleanup on abort
+        // === Cleanup on abort ===
         req.signal.addEventListener('abort', () => {
           service.off('chat-update', onChatUpdate)
           service.off('qr', onQR)
           service.off('ready', emitStatus)
           service.off('authenticated', emitStatus)
-          service.off('disconnected', emitStatus)
+          service.off('disconnected', onDisconnected)
           service.off('auth_failure', emitStatus)
           service.off('users_bulk_updated', emitStatus)
+          service.off('status_changed', emitStatus)
+          service.off('users_reloaded', emitStatus)
           controller.close()
         })
       }
 
       setup().catch((err) => {
+        console.error("[SSE] Setup failed:", err)
         controller.error(err)
       })
-    }
+    },
   })
 
   return new Response(stream, {

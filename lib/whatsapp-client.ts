@@ -13,8 +13,7 @@ export class WhatsAppClient extends EventEmitter {
   private readonly maxReconnectAttempts = 5
   private readonly reconnectDelay = 5000
   private chatHistory: ChatHistory = {}
-  private reloadInterval: NodeJS.Timeout | null = null; // ✅ Tambahkan ini
-
+  private reloadInterval: NodeJS.Timeout | null = null
 
   private status: BotStatus = {
     isRunning: false,
@@ -59,8 +58,8 @@ export class WhatsAppClient extends EventEmitter {
       })
 
       this.status.isRunning = true
-      this.reconnectAttempts = 0
       this.status.error = undefined
+      this.reconnectAttempts = 0
       this.logStatus()
 
       this.emit("status_changed", {
@@ -129,7 +128,14 @@ export class WhatsAppClient extends EventEmitter {
 
     this.client.on("disconnected", async (reason: string) => {
       console.warn("[WhatsAppClient] 🔌 Disconnected:", reason)
-      this.emit("disconnected", reason)
+
+      // Emit status terlebih dahulu
+      const message = reason === "LOGOUT" ? "User logged out" : `Disconnected: ${reason}`
+      this.emit("status_changed", {
+        isRunning: false,
+        isReady: false,
+        message,
+      })
 
       if (reason !== "LOGOUT" && this.reconnectAttempts < this.maxReconnectAttempts) {
         this.reconnectAttempts++
@@ -205,7 +211,6 @@ export class WhatsAppClient extends EventEmitter {
         }
       }
 
-
       console.log(`[sendBulkMessages] Done. Sent ${this.status.messagesSent} messages.`)
     } finally {
       this.isSendingMessages = false
@@ -264,16 +269,9 @@ export class WhatsAppClient extends EventEmitter {
 
   public async reloadUsers(): Promise<void> {
     try {
-      const users = await prisma.nasabah.findMany({
-        orderBy: { id: "desc" },
-      })
-
-      // Update jumlah user belum terkirim
+      const users = await prisma.nasabah.findMany({ orderBy: { id: "desc" } })
       this.status.contactsCount = users.filter((u) => !u.isSended).length
-
-      // Bisa juga emit event ke frontend jika perlu
       this.emit("users_reloaded", users)
-
       console.log(`[WhatsAppClient] 🔄 Reloaded ${users.length} users from DB`)
     } catch (error) {
       console.error("[WhatsAppClient] Failed to reload users:", error)
@@ -297,6 +295,4 @@ export class WhatsAppClient extends EventEmitter {
       console.log("[WhatsAppClient] 🛑 Auto-reload stopped")
     }
   }
-
-
 }

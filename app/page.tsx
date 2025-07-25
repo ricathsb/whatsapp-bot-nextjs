@@ -278,7 +278,7 @@ export default function WhatsAppBot() {
             </div>
 
             {/* QR Code */}
-            {status.qrCode && (
+            {status.qrCode && status.isRunning && !status.isReady && (
                 <Card>
                     <CardHeader>
                         <CardTitle>WhatsApp QR Code</CardTitle>
@@ -287,7 +287,7 @@ export default function WhatsAppBot() {
                     <CardContent>
                         <div className="flex justify-center">
                             <img
-                                src={status.qrCode || "/placeholder.svg"}
+                                src={status.qrCode}
                                 alt="WhatsApp QR Code"
                                 className="mx-auto rounded border p-2 bg-white shadow"
                             />
@@ -295,7 +295,6 @@ export default function WhatsAppBot() {
                     </CardContent>
                 </Card>
             )}
-
             {/* Upload CSV */}
             <Card>
                 <CardHeader>
